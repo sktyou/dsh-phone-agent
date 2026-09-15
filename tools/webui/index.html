@@ -1,0 +1,1959 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>DSH Phone Agent · 调试台</title>
+<style>
+  :root {
+    --bg:#0f1115; --panel:#181b21; --panel2:#1f232b; --line:#2b3038;
+    --ink:#e6e9ef; --muted:#8b93a1; --accent:#3b82f6; --ok:#22c55e;
+    --warn:#f59e0b; --err:#ef4444; --cyan:#22d3ee;
+    --mono:ui-monospace,"Cascadia Code",Consolas,monospace;
+  }
+  * { box-sizing:border-box; }
+  body {
+    margin:0; background:var(--bg); color:var(--ink);
+    font:13px/1.5 "Segoe UI","Microsoft YaHei UI",system-ui,sans-serif;
+    height:100vh; display:flex; flex-direction:column; overflow:hidden;
+  }
+
+  /* ---------- toolbar ---------- */
+  header {
+    display:flex; align-items:center; gap:6px; padding:7px 12px;
+    background:var(--panel); border-bottom:1px solid var(--line); flex-wrap:wrap;
+  }
+  .brand { font-weight:700; letter-spacing:.4px; margin-right:4px; }
+  .brand small { color:var(--muted); font-weight:400; margin-left:5px; }
+  button {
+    background:var(--panel2); color:var(--ink); border:1px solid var(--line);
+    border-radius:6px; padding:5px 10px; cursor:pointer; font-size:12px;
+  }
+  button:hover { border-color:var(--accent); }
+  button.on { background:var(--accent); border-color:var(--accent); color:#fff; }
+  button.primary { background:var(--accent); border-color:var(--accent); color:#fff; }
+  .sep { width:1px; height:20px; background:var(--line); margin:0 3px; }
+  input[type=text], input[type=number] {
+    background:var(--panel2); border:1px solid var(--line); color:var(--ink);
+    border-radius:6px; padding:5px 8px; font-size:12px; width:130px;
+  }
+  input.w60 { width:60px; } input.w80 { width:80px; } input.w100 { width:100px; }
+  select {
+    background:var(--panel2); border:1px solid var(--line); color:var(--ink);
+    border-radius:6px; padding:5px 8px; font-size:12px;
+  }
+  label { color:var(--muted); font-size:12px; }
+
+  /* ---------- main tabs ---------- */
+  nav.tabs {
+    display:flex; gap:2px; padding:6px 12px 0; background:var(--panel);
+    border-bottom:1px solid var(--line);
+  }
+  nav.tabs button {
+    border-radius:6px 6px 0 0; border-bottom:none; padding:6px 16px; font-size:12.5px;
+  }
+
+  /* ---------- layout ---------- */
+  main { flex:1; display:flex; min-height:0; }
+  .screen-wrap {
+    flex:0 0 auto; padding:10px; overflow:auto; display:flex;
+    flex-direction:column; align-items:center; gap:6px;
+    border-right:1px solid var(--line);
+  }
+  .stage { position:relative; }
+  #shot {
+    display:block; max-height:calc(100vh - 150px); width:auto;
+    border:1px solid var(--line); border-radius:6px; cursor:crosshair;
+    user-select:none; -webkit-user-drag:none;
+  }
+  .side { flex:1; min-width:340px; display:flex; flex-direction:column; min-height:0; }
+  .panel { flex:1; overflow:auto; padding:12px; min-height:0; }
+  .tabpane { display:none; }
+  .tabpane.on { display:block; }
+
+  /* ---------- overlays ---------- */
+  #overlay, #nodebox, #marks { position:absolute; pointer-events:none; overflow:visible; }
+  #overlay polyline { fill:none; stroke:#22c55e; stroke-width:2;
+                      stroke-linejoin:round; stroke-linecap:round; opacity:.95; }
+  #overlay line.ideal { stroke:#64748b; stroke-width:1; stroke-dasharray:4 4; opacity:.7; }
+  #nodebox rect { fill:rgba(245,158,11,.14); stroke:#f59e0b;
+                  stroke-width:2; stroke-dasharray:7 5; }
+  #nodebox text { fill:#f59e0b; font:600 13px var(--mono);
+                  paint-order:stroke; stroke:#0f1115; stroke-width:3px; }
+  #marks circle.hit { fill:none; stroke:var(--cyan); stroke-width:2.5; }
+  #marks rect.hit { fill:rgba(34,211,238,.10); stroke:var(--cyan); stroke-width:2; }
+  #marks rect.anchor { fill:none; stroke:#f472b6; stroke-width:2.5; stroke-dasharray:5 3; }
+  #marks rect.tpl { fill:rgba(34,211,238,.12); stroke:var(--cyan);
+                    stroke-width:2; stroke-dasharray:6 4; }
+  #marks circle.hitdot { fill:var(--cyan); }
+  #marks rect.pt { fill:rgba(244,114,182,.35); stroke:#f472b6; stroke-width:1.5; }
+  #marks text { font:600 11px var(--mono); paint-order:stroke;
+                stroke:#0f1115; stroke-width:3px; fill:var(--cyan); }
+  #marks text.anchorLabel { fill:#f472b6; }
+  .dragbox {
+    position:absolute; border:2px solid var(--accent); background:rgba(59,130,246,.18);
+    pointer-events:none; display:none; border-radius:3px;
+  }
+  .dot {
+    position:absolute; width:10px; height:10px; margin:-5px 0 0 -5px;
+    border-radius:50%; background:var(--accent); border:2px solid #fff;
+    pointer-events:none; display:none;
+  }
+
+  /* ---------- readouts ---------- */
+  .coords {
+    font-family:var(--mono); font-size:11.5px; color:var(--muted);
+    display:flex; gap:12px; align-items:center; flex-wrap:wrap;
+  }
+  .coords b { color:var(--ink); font-weight:600; }
+  .hint { color:var(--muted); font-size:11.5px; }
+
+  /* ---------- cards ---------- */
+  .card {
+    background:var(--panel); border:1px solid var(--line);
+    border-radius:8px; padding:12px; margin-bottom:10px;
+  }
+  .card h3 {
+    margin:0 0 9px; font-size:12.5px; font-weight:600; color:var(--ink);
+    display:flex; align-items:center; gap:8px;
+  }
+  .card h3 .sub { color:var(--muted); font-weight:400; font-size:11.5px; }
+  .row { display:flex; align-items:center; gap:6px; flex-wrap:wrap; margin-bottom:8px; }
+  .row:last-child { margin-bottom:0; }
+
+  /* ---------- tree ---------- */
+  .node {
+    font-family:var(--mono); font-size:11.5px; padding:2px 6px; margin:1px 0;
+    border-radius:4px; cursor:pointer; white-space:nowrap;
+    overflow:hidden; text-overflow:ellipsis; border:1px solid transparent;
+  }
+  .node:hover { background:var(--panel2); }
+  .node.sel { background:rgba(59,130,246,.2); border-color:var(--accent); }
+  .node .cls { color:#7dd3fc; }
+  .node .txt { color:var(--ink); }
+  .node .attr { color:var(--muted); }
+  .node .clk { color:var(--ok); }
+
+  .kv { font-family:var(--mono); font-size:11.5px; }
+  .kv div { padding:2px 0; }
+  .kv b { color:var(--muted); font-weight:400; display:inline-block; min-width:100px; }
+
+  .log { font-family:var(--mono); font-size:11.5px; max-height:300px; overflow:auto; }
+  .log div { padding:3px 5px; border-bottom:1px solid var(--line); word-break:break-all; }
+  .log .t { color:var(--muted); }
+  .log .ok { color:var(--ok); }
+  .log .er { color:var(--err); }
+
+  /* permission grid: a compact status board, at most four per row */
+  .permGrid {
+    display:grid; grid-template-columns:repeat(4, 1fr); gap:6px;
+  }
+  .perm {
+    border:1px solid var(--line); border-radius:6px; padding:6px 7px;
+    background:var(--panel2); min-width:0;
+  }
+  .perm .name {
+    font-size:11px; color:var(--muted); white-space:nowrap;
+    overflow:hidden; text-overflow:ellipsis;
+  }
+  .perm .state { font-size:12px; font-weight:600; margin-top:2px; }
+  .perm.ok { border-color:rgba(34,197,94,.45); }
+  .perm.ok .state { color:var(--ok); }
+  .perm.bad { border-color:rgba(239,68,68,.45); }
+  .perm.bad .state { color:var(--err); }
+  .perm.warn { border-color:rgba(245,158,11,.45); }
+  .perm.warn .state { color:var(--warn); }
+  .perm .detail {
+    font-size:10.5px; color:var(--muted); margin-top:1px;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  }
+  @media (max-width: 1100px) { .permGrid { grid-template-columns:repeat(2, 1fr); } }
+
+  pre {
+    background:var(--panel2); padding:8px; border-radius:6px; overflow:auto;
+    font-size:11.5px; margin:6px 0; max-height:260px; white-space:pre-wrap;
+  }
+  code.selcode { cursor:pointer; color:#7dd3fc; }
+  table.grid { width:100%; border-collapse:collapse; font-family:var(--mono); font-size:11.5px; }
+  table.grid th, table.grid td {
+    border:1px solid var(--line); padding:3px 6px; text-align:left;
+  }
+  table.grid th { background:var(--panel2); color:var(--muted); font-weight:400; }
+  .swatch {
+    display:inline-block; width:16px; height:16px; border-radius:4px;
+    border:1px solid var(--line); vertical-align:middle;
+  }
+  .empty { color:var(--muted); padding:10px 0; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand">DSH Phone Agent <small>调试台</small></div>
+  <span id="connBadge" style="font-size:12px;color:var(--muted)">● 未知</span>
+  <button id="btnRefresh">刷新</button>
+  <button id="btnLive">实时 关</button>
+  <select id="selFps">
+    <option value="3">3 fps</option>
+    <option value="5" selected>5 fps</option>
+    <option value="8">8 fps</option>
+  </select>
+  <button id="btnAuto">自动刷新 关</button>
+  <select id="selScale">
+    <option value="1">100%</option>
+    <option value="0.5">50%</option>
+    <option value="0.35" selected>35%</option>
+  </select>
+  <div class="sep"></div>
+  <input type="text" id="inpToken" class="w100" placeholder="访问令牌(可选)">
+</header>
+
+<nav class="tabs">
+  <button class="on" data-tab="gesture">手势</button>
+  <button data-tab="color">找色</button>
+  <button data-tab="image">找图</button>
+  <button data-tab="ocr">识字</button>
+  <button data-tab="node">节点</button>
+  <button data-tab="device">设备</button>
+  <button data-tab="skill">SKILL</button>
+</nav>
+
+<main>
+  <div class="screen-wrap">
+    <div class="stage">
+      <img id="shot" alt="手机截屏">
+      <svg id="overlay"></svg>
+      <svg id="nodebox"></svg>
+      <svg id="marks"></svg>
+      <div class="dragbox" id="dragbox"></div>
+      <div class="dot" id="dotA"></div>
+      <div class="dot" id="dotB"></div>
+    </div>
+    <div class="coords">
+      <span>图像 <b id="cImg">-</b></span>
+      <span>手机 <b id="cPhone">-</b></span>
+      <span>指针 <b id="cPtr">-</b></span>
+    </div>
+    <div class="coords" id="cDrag" style="color:var(--accent)"></div>
+    <div class="hint" style="text-align:center">
+      单击=起点+取色 · 双击=终点 · 拖动=滑动 · <b>Shift+拖动=选区域</b>
+    </div>
+  </div>
+
+  <div class="side">
+    <div class="panel">
+
+      <!-- ============ 手势 ============ -->
+      <div class="tabpane on" id="tab-gesture">
+        <div class="card">
+          <h3>滑动 <span class="sub">到达后自动刹车,不同时长都精确</span></h3>
+          <div class="row">
+            <label>起点</label>
+            <input type="number" id="gx1" class="w80" placeholder="x1">
+            <input type="number" id="gy1" class="w80" placeholder="y1">
+          </div>
+          <div class="row">
+            <label>终点</label>
+            <input type="number" id="gx2" class="w80" placeholder="x2">
+            <input type="number" id="gy2" class="w80" placeholder="y2">
+          </div>
+          <div class="row">
+            <label>时长</label>
+            <input type="number" id="gdur" class="w80" value="500"> ms
+            <label>刹车</label>
+            <input type="number" id="gbrake" class="w80" placeholder="随机250-350"> ms
+          </div>
+          <div class="row">
+            <button id="btnSwipe" class="primary">执行滑动</button>
+            <button id="btnTapPt">点击起点</button>
+            <button id="btnLongPt">长按起点</button>
+            <button id="btnPath" class="on">显示轨迹 开</button>
+          </div>
+          <div class="hint" id="pathInfo">拖拽截屏或直接填坐标</div>
+        </div>
+      </div>
+
+      <!-- ============ 找色 ============ -->
+      <div class="tabpane" id="tab-color">
+        <div class="card">
+          <h3>单点找色</h3>
+          <div class="row">
+            <label>颜色</label>
+            <input type="text" id="pickColor" class="w100" placeholder="#RRGGBB">
+            <span class="swatch" id="pickSwatch"></span>
+            <label>容差</label>
+            <input type="number" id="tolerance" class="w60" value="16" min="0" max="255">
+          </div>
+          <div class="row">
+            <label>范围</label>
+            <input type="text" id="colorRegion" class="w100" placeholder="留空=全屏">
+            <button id="btnUseSelRegion">用选区</button>
+          </div>
+          <div class="row">
+            <button id="btnFindColor" class="primary">找色</button>
+            <span class="hint">单击图像取色</span>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3>多点找色 <span class="sub">锚点 + 偏移点,用来精确描述"某个图标"</span></h3>
+          <div class="row">
+            <button id="btnSetAnchor" class="primary">把取到的颜色设为锚点</button>
+          </div>
+          <table class="grid" id="multiTable">
+            <thead>
+              <tr><th>锚点</th><th>颜色</th><th>偏移点</th></tr>
+            </thead>
+            <tbody id="multiBody">
+              <tr><td colspan="3" class="empty">先取锚点,再在图像上单击若干位置作为偏移点</td></tr>
+            </tbody>
+          </table>
+          <div class="row" style="margin-top:8px">
+            <button id="btnFindMulti" class="primary">多点找色</button>
+            <button id="btnClearMulti">清空特征</button>
+            <span class="hint" id="multiInfo"></span>
+          </div>
+        </div>
+      </div>
+
+      <!-- ============ 找图 ============ -->
+      <div class="tabpane" id="tab-image">
+        <div class="card">
+          <h3>模板找图 <span class="sub">Shift+拖动截屏取模板,或选本地图片</span></h3>
+          <div class="row">
+            <label>选区</label>
+            <input type="text" id="tplRegion" class="w100" placeholder="留空则用本地图片" readonly>
+            <button id="btnClearSel">清除</button>
+          </div>
+          <div class="row">
+            <label>相似度</label>
+            <input type="number" id="tplThreshold" class="w80" value="0.85" step="0.01" min="0.5" max="1">
+            <label>上限</label>
+            <input type="number" id="tplMax" class="w60" value="20">
+          </div>
+          <div class="row">
+            <button id="btnFindImage" class="primary">用选区找图</button>
+          </div>
+          <div class="row">
+            <label>本地图片</label>
+            <input type="file" id="tplFile" accept="image/*">
+            <button id="btnFindImageFile">用本地图片找图</button>
+          </div>
+          <div id="tplPreview" style="margin-top:8px"></div>
+          <div class="hint" id="tplInfo">
+            选区方式从<b>全分辨率</b>截图裁剪(约 1.2 秒);本地图片方式没有这个开销
+          </div>
+        </div>
+      </div>
+
+      <!-- ============ 识字 ============ -->
+      <div class="tabpane" id="tab-ocr">
+        <div class="card">
+          <h3>本地 OCR</h3>
+          <div class="row">
+            <label>范围</label>
+            <input type="text" id="ocrRegion" class="w100" placeholder="留空=全屏">
+            <button id="btnUseSelRegion2">用选区</button>
+          </div>
+          <div class="hint" style="margin-bottom:8px">
+            在左侧图像上 <b>按住 Shift 拖动</b> 即可框选区域
+          </div>
+          <div class="row">
+            <button id="btnOcr" class="primary">识别</button>
+            <span class="hint" id="ocrInfo"></span>
+          </div>
+          <pre id="ocrText" class="empty">点「识别」开始</pre>
+        </div>
+
+        <div class="card">
+          <h3>按文字找控件</h3>
+          <div class="row">
+            <input type="text" id="inpFind" class="w100" placeholder="要查找的文字">
+            <select id="selFindMode">
+              <option value="contains">包含</option>
+              <option value="exact">精确</option>
+              <option value="regex">正则</option>
+            </select>
+            <select id="selFindSource">
+              <option value="auto">自动(树优先)</option>
+              <option value="node">仅控件树</option>
+              <option value="ocr">仅 OCR</option>
+            </select>
+          </div>
+          <div class="row">
+            <button id="btnFindText" class="primary">查找</button>
+            <button id="btnTapFound">点击首个命中</button>
+            <span class="hint" id="findInfo"></span>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3>文字输入</h3>
+          <div class="row">
+            <input type="text" id="inpText" class="w100" placeholder="要输入的文字">
+          </div>
+          <div class="row">
+            <button id="btnType">输入</button>
+            <button id="btnSend">提交</button>
+            <button id="btnDelete">回删</button>
+            <button id="btnClearField">清空</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ============ 节点 ============ -->
+      <div class="tabpane" id="tab-node">
+        <div class="card">
+          <h3>节点树 <span class="sub" id="treeMeta"></span></h3>
+          <div class="row">
+            <button id="btnLoadTree" class="primary">刷新节点树</button>
+            <button id="btnHideBox">取消圈选</button>
+          </div>
+          <div id="tree" style="max-height:280px; overflow:auto"></div>
+        </div>
+
+        <div class="card">
+          <h3>选中详情</h3>
+          <div id="detail" class="empty">点击节点树里的节点查看属性</div>
+        </div>
+
+        <div class="card">
+          <h3>对该节点执行 <span class="sub">结果实时显示在下方</span></h3>
+          <div class="row">
+            <button id="btnNodeTap">点击</button>
+            <button id="btnNodeDouble">双击</button>
+            <button id="btnNodeLong">长按</button>
+            <button id="btnNodeScroll">滚动</button>
+          </div>
+          <div class="row">
+            <input type="text" id="inpNodeText" class="w100" placeholder="输入到此节点">
+            <button id="btnNodeInput" class="primary">点进去并输入</button>
+          </div>
+          <div class="row">
+            <button id="btnNodeCopySel">复制选择器</button>
+            <button id="btnNodeCopyCenter">复制坐标</button>
+          </div>
+          <div class="log" id="nodeExec">
+            <div class="t">尚未执行</div>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3>添加到跳过广告 <span class="sub">把选中节点变成一条跳过规则</span></h3>
+          <div class="row">
+            <label>规则</label>
+            <select id="selAdRule" style="flex:1">
+              <option value="-1">+ 新建规则</option>
+            </select>
+            <button id="btnAdReload">刷新</button>
+          </div>
+          <div class="row">
+            <label>名称</label>
+            <input type="text" id="inpAdRuleName" class="w100" placeholder="新建时使用">
+            <label>动作</label>
+            <select id="selAdAction">
+              <option value="click">点击</option>
+              <option value="back">返回</option>
+            </select>
+          </div>
+          <div class="row">
+            <label>选择器</label>
+            <input type="text" id="inpAdSelector" class="w100" style="flex:1"
+                   placeholder="选中节点后自动生成,可手改">
+          </div>
+          <div class="row">
+            <button id="btnAdAdd" class="primary">添加当前选中节点</button>
+            <button id="btnAdTestSel">验证选择器</button>
+          </div>
+          <div class="log" id="adInfo" style="max-height:150px">
+            <div class="t">先在上面的节点树里选一个节点</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ============ 设备 ============ -->
+      <div class="tabpane" id="tab-device">
+        <div class="card">
+          <h3>设备状态 <span class="sub">进入本页自动读取</span></h3>
+          <div id="deviceInfo" class="kv empty">读取中…</div>
+          <div class="row" style="margin-top:8px">
+            <button id="btnDevice">重新读取</button>
+            <span class="hint" id="devPing"></span>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3>权限状态 <span class="sub">每行最多 4 项</span></h3>
+          <div id="permGrid" class="permGrid"></div>
+          <div class="row" style="margin-top:8px">
+            <button id="btnPermRefresh">重新检查</button>
+            <span class="hint" id="permInfo"></span>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3>系统操作</h3>
+          <div class="row">
+            <button data-act="wake">唤醒屏幕</button>
+            <button data-act="key:HOME">回到桌面</button>
+            <button data-act="key:BACK">返回</button>
+            <button data-act="key:RECENTS">最近任务</button>
+          </div>
+          <div class="row">
+            <button data-act="key:NOTIFICATIONS">通知栏</button>
+            <button data-act="key:LOCK">锁屏</button>
+            <button data-act="key:SCREENSHOT">截屏</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3>音量 / 亮度</h3>
+          <div class="row">
+            <label>音量</label>
+            <button data-vol="down">−</button>
+            <button data-vol="up">+</button>
+            <button data-vol="mute">静音</button>
+            <button data-vol="unmute">取消静音</button>
+            <span class="hint" id="volInfo"></span>
+          </div>
+          <div class="row">
+            <label>亮度</label>
+            <input type="number" id="brightPct" class="w60" value="50" min="0" max="100"> %
+            <button id="btnBright">设置</button>
+            <span class="hint" id="brightInfo"></span>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3>滚动识别 <span class="sub">一次调用读完整屏列表</span></h3>
+          <div class="row">
+            <label>次数</label><input type="number" id="swScrolls" class="w60" value="40">
+            <label>步长</label><input type="number" id="swDist" class="w80" value="1100">
+            <label>每步</label><input type="number" id="swPer" class="w60" value="2">
+          </div>
+          <div class="row">
+            <label>区域</label>
+            <input type="text" id="swRegion" class="w100" value="280,400,1080,2100">
+          </div>
+          <div class="row">
+            <button id="btnSweep" class="primary">开始扫描</button>
+            <span class="hint" id="sweepInfo"></span>
+          </div>
+          <pre id="sweepText" class="empty">扫描结果会显示在这里</pre>
+        </div>
+
+        <div class="card">
+          <h3>应用</h3>
+          <div class="row">
+            <input type="text" id="inpAppQuery" class="w100" placeholder="应用名/包名">
+            <button id="btnApps">列出应用</button>
+            <button id="btnStopApp">结束应用</button>
+          </div>
+          <div class="row">
+            <input type="text" id="inpLaunch" class="w100" placeholder="包名">
+            <button id="btnLaunch">启动</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ============ SKILL ============ -->
+      <div class="tabpane" id="tab-skill">
+        <div class="card">
+          <h3>操作说明 <span class="sub">可直接复制给 Agent 使用</span></h3>
+          <div class="row">
+            <button id="btnSkillLoad" class="primary">加载 SKILL</button>
+            <button id="btnSkillCopy">复制全文</button>
+            <button id="btnSkillCopyEndpoint">复制接入信息</button>
+            <span class="hint" id="skillInfo"></span>
+          </div>
+          <pre id="skillText" class="empty">点「加载 SKILL」读取手机上的操作说明</pre>
+        </div>
+      </div>
+
+    </div>
+
+    <div class="card" style="border-radius:0; border-left:none; border-right:none; border-bottom:none; margin:0">
+      <h3 style="margin-bottom:6px">
+        命令日志
+        <span class="sub" id="logMeta"></span>
+        <button id="btnClearLog" style="margin-left:auto">清空</button>
+      </h3>
+      <div class="log" id="log" style="max-height:300px"></div>
+    </div>
+  </div>
+</main>
+
+<script>
+const $ = (s) => document.querySelector(s);
+const shot = $("#shot");
+const logEl = $("#log");
+
+let screen = { w: 0, h: 0 };
+let image = { w: 0, h: 0 };
+let autoTimer = null;
+let busy = 0;
+let selectedRegion = null;
+let lastNode = null;
+let lastFound = null;
+
+/* ---------------- bridge ---------------- */
+function token() { return $("#inpToken").value.trim(); }
+
+/**
+ * fetch with a deadline.
+ *
+ * A bare `fetch` has no timeout, so a stalled request would leave `busy` above zero
+ * forever and every later action would be skipped — the page looks frozen while it
+ * is only waiting.
+ *
+ * The error is annotated rather than passed through raw: `AbortError` with the
+ * message "signal is aborted without reason" says nothing about which of the two
+ * causes applied (our deadline, or the browser/network cancelling), and that
+ * distinction is the whole diagnosis.
+ */
+async function fetchWithTimeout(url, options = {}, timeoutMs = 120000, label = "") {
+  const controller = new AbortController();
+  let timedOut = false;
+  const timer = setTimeout(() => { timedOut = true; controller.abort(); }, timeoutMs);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } catch (e) {
+    if (timedOut) {
+      const err = new Error(`请求超时 (${timeoutMs}ms)${label ? " · " + label : ""}`);
+      err.name = "TimeoutError";
+      throw err;
+    }
+    throw e;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function rpc(cmd) {
+  const t = token();
+  const payload = t ? { ...cmd, token: t } : cmd;
+  busy++;
+  const started = Date.now();
+  try {
+    const res = await fetchWithTimeout(
+      "/rpc",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(payload),
+      },
+      120000,
+      cmd.cmd,
+    );
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      const err = { ok: false, error: `HTTP ${res.status} ${text.slice(0, 120)}` };
+      addLog(cmd, err);
+      return err;
+    }
+    const json = await res.json();
+    json.elapsedMs = json.elapsedMs ?? (Date.now() - started);
+    if (json.ok) markAlive();
+    addLog(cmd, json);
+    return json;
+  } catch (e) {
+    // Report the error kind, not just the message: "TimeoutError" means the phone is
+    // not answering, "TypeError" usually means the bridge or the network is gone, and
+    // "AbortError" without our flag means something outside the page cancelled it.
+    const err = {
+      ok: false,
+      error: `${e?.name ?? "Error"}: ${e?.message ?? e}`,
+      code: e?.name ?? "unknown",
+    };
+    addLog(cmd, err);
+    return err;
+  } finally {
+    busy--;
+  }
+}
+
+function addLog(cmd, reply) {
+  const div = document.createElement("div");
+  const t = new Date().toLocaleTimeString();
+  const label = cmd.cmd + (cmd.x != null ? `(${cmd.x},${cmd.y})` : "");
+  if (reply.ok) {
+    div.innerHTML = `<span class="t">${t}</span> <span class="ok">✓</span> ${label} ` +
+      `<span class="t">${reply.elapsedMs ?? ""}${reply.elapsedMs ? "ms" : ""}</span>`;
+  } else {
+    div.innerHTML = `<span class="t">${t}</span> <span class="er">✗</span> ${label} ` +
+      `<span class="er">${reply.error ?? reply.code ?? ""}</span>`;
+  }
+  logEl.prepend(div);
+  while (logEl.childElementCount > 200) logEl.lastChild.remove();
+}
+
+/** Log an action performed against the selected node, into its own panel. */
+function nodeExec(text, ok = true) {
+  const div = document.createElement("div");
+  div.innerHTML = `<span class="t">${new Date().toLocaleTimeString()}</span> ` +
+    `<span class="${ok ? "ok" : "er"}">${ok ? "✓" : "✗"}</span> ${escapeHtml(text)}`;
+  const box = $("#nodeExec");
+  if (box.firstElementChild?.classList.contains("t") && box.childElementCount === 1) box.innerHTML = "";
+  box.prepend(div);
+  while (box.childElementCount > 40) box.lastChild.remove();
+}
+
+/* ---------------- screenshot ---------------- */
+/** True while the MJPEG stream owns the <img>. */
+let live = false;
+/** Frame counter reported by the stream, for the fps readout. */
+let streamFrames = 0;
+let streamStartedAt = 0;
+
+async function refresh() {
+  if (live) return;           // the stream owns the image
+  if (busy > 0) return;
+  const scale = $("#selScale").value;
+  const t = token();
+  const url = `/shot?scale=${scale}&quality=85&t=${Date.now()}` +
+    (t ? `&token=${encodeURIComponent(t)}` : "");
+  busy++;
+  try {
+    const res = await fetchWithTimeout(url, {}, 60000);
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      addLog({ cmd: "screenshot" }, { ok: false, error: err.error ?? res.status });
+      return;
+    }
+    screen.w = Number(res.headers.get("x-phone-width")) || screen.w;
+    screen.h = Number(res.headers.get("x-phone-height")) || screen.h;
+    image.w = Number(res.headers.get("x-image-width")) || 0;
+    image.h = Number(res.headers.get("x-image-height")) || 0;
+
+    if (shot.dataset.url) URL.revokeObjectURL(shot.dataset.url);
+    const objUrl = URL.createObjectURL(await res.blob());
+    shot.dataset.url = objUrl;
+    shot.src = objUrl;
+
+    $("#cImg").textContent = `${image.w}×${image.h}`;
+    $("#cPhone").textContent = `${screen.w}×${screen.h}`;
+  } catch (e) {
+    addLog({ cmd: "screenshot" }, { ok: false, error: String(e?.message ?? e) });
+  } finally {
+    busy--;
+  }
+}
+
+/**
+ * Switch the view to the live MJPEG stream.
+ *
+ * The stream carries no geometry headers, so a static frame is fetched first to
+ * learn the screen size — without it the click-to-coordinate maths would divide by
+ * zero until something else happened to populate it.
+ *
+ * Clicking still works while streaming: the image keeps its on-screen size, and the
+ * page's coordinate maths reads that box rather than the frame's contents. The
+ * picture moves, the geometry does not.
+ */
+async function setLive(on) {
+  live = on;
+  $("#btnLive").classList.toggle("on", on);
+  $("#btnLive").textContent = on ? "实时 开" : "实时 关";
+
+  if (!on) {
+    if (shot.dataset.url) { URL.revokeObjectURL(shot.dataset.url); delete shot.dataset.url; }
+    await refresh();
+    return;
+  }
+
+  if (!screen.w) {
+    const saved = live; live = false;
+    await refresh();
+    live = saved;
+  }
+
+  const scale = $("#selScale").value;
+  const fps = $("#selFps").value;
+  const t = token();
+  streamFrames = 0;
+  streamStartedAt = Date.now();
+  shot.src = `/stream?scale=${scale}&quality=70&fps=${fps}` +
+    (t ? `&token=${encodeURIComponent(t)}` : "") + `&t=${Date.now()}`;
+
+  const probe = setInterval(() => {
+    if (!live) { clearInterval(probe); return; }
+    const w = shot.naturalWidth || 0;
+    if (!w) return;
+    // MJPEG gives no per-frame event, so measure actual delivery instead of
+    // trusting the requested fps. The phone's screenshot throttle is the real cap.
+    if (image.w !== w) { image.w = w; image.h = shot.naturalHeight; }
+    const secs = (Date.now() - streamStartedAt) / 1000;
+    streamFrames++;
+    if (secs > 1.5) {
+      const measured = (streamFrames / secs).toFixed(1);
+      $("#cImg").textContent = `${image.w}×${image.h}`;
+      $("#cPhone").textContent = `${screen.w}×${screen.h}`;
+      $("#cDrag").textContent = `实时 ${measured} fps (请求 ${fps})`;
+      streamFrames = 0;
+      streamStartedAt = Date.now();
+    }
+  }, 200);
+}
+
+function toPhone(ev) {
+  const r = shot.getBoundingClientRect();
+  return {
+    x: Math.round((ev.clientX - r.left) / r.width * screen.w),
+    y: Math.round((ev.clientY - r.top) / r.height * screen.h),
+  };
+}
+
+function stageBox(svg) {
+  const r = shot.getBoundingClientRect();
+  const stage = shot.parentElement.getBoundingClientRect();
+  svg.setAttribute("width", r.width);
+  svg.setAttribute("height", r.height);
+  svg.setAttribute("viewBox", `0 0 ${r.width} ${r.height}`);
+  svg.style.left = (r.left - stage.left) + "px";
+  svg.style.top = (r.top - stage.top) + "px";
+  svg.style.width = r.width + "px";
+  svg.style.height = r.height + "px";
+  return r;
+}
+
+function positionDot(el, p) {
+  const r = shot.getBoundingClientRect();
+  el.style.left = (p.x / screen.w * r.width) + "px";
+  el.style.top = (p.y / screen.h * r.height) + "px";
+}
+
+function resetDrag() {
+  $("#dragbox").style.display = "none";
+  $("#dotA").style.display = "none";
+  $("#dotB").style.display = "none";
+}
+
+/* ---------------- colour ---------------- */
+let anchorColor = null;
+const offsetPoints = [];
+
+async function pickColorAt(p) {
+  const reply = await rpc({ cmd: "colorat", x: p.x, y: p.y });
+  if (!reply.ok) return;
+  const c = reply.data.color;
+  $("#pickColor").value = c;
+  $("#pickSwatch").style.background = c;
+  return c;
+}
+
+/** Repaint the colour layer: template box, multi-point feature, hits. */
+function drawMarks(hits) {
+  const svg = $("#marks");
+  const r = stageBox(svg);
+  const sx = r.width / (screen.w || 1);
+  const sy = r.height / (screen.h || 1);
+  const parts = [];
+
+  if (selectedRegion) {
+    const [l, t, rr, bb] = selectedRegion;
+    parts.push(
+      `<rect class="tpl" x="${l * sx}" y="${t * sy}" ` +
+      `width="${Math.max(2, (rr - l) * sx)}" height="${Math.max(2, (bb - t) * sy)}"/>`,
+    );
+  }
+
+  // The multi-point feature is drawn as a small map so you can see what you built.
+  if (anchorColor && anchorPoints.length) {
+    const a = anchorPoints[0];
+    for (const pt of anchorPoints) {
+      parts.push(
+        `<rect class="pt" x="${(pt.x - 3) * sx}" y="${(pt.y - 3) * sy}" ` +
+        `width="${6 * sx}" height="${6 * sy}"/>`,
+      );
+    }
+    parts.push(
+      `<rect class="anchor" x="${(a.x - 6) * sx}" y="${(a.y - 6) * sy}" ` +
+      `width="${12 * sx}" height="${12 * sy}"/>`,
+    );
+  }
+
+  for (const h of hits ?? []) {
+    if (h.bounds) {
+      const bx = h.bounds[0] * sx, by = h.bounds[1] * sy;
+      const bw = Math.max(4, (h.bounds[2] - h.bounds[0]) * sx);
+      const bh = Math.max(4, (h.bounds[3] - h.bounds[1]) * sy);
+      parts.push(`<rect class="hit" x="${bx}" y="${by}" width="${bw}" height="${bh}"/>`);
+      if (h.pixels) {
+        parts.push(`<text x="${bx}" y="${by > 16 ? by - 4 : by + bh + 13}">${h.pixels}px</text>`);
+      }
+    } else {
+      const cx = (h.center?.[0] ?? 0) * sx;
+      const cy = (h.center?.[1] ?? 0) * sy;
+      parts.push(`<circle class="hit" cx="${cx}" cy="${cy}" r="10"/>`);
+      parts.push(`<circle class="hitdot" cx="${cx}" cy="${cy}" r="2.5"/>`);
+    }
+  }
+
+  svg.innerHTML = parts.join("");
+}
+
+function clearMarks() {
+  selectedRegion = null;
+  anchorColor = null;
+  anchorPoints.length = 0;
+  offsetPoints.length = 0;
+  $("#tplRegion").value = "";
+  renderMulti();
+  drawMarks();
+}
+
+/* ---- multi-point feature ---- */
+/** Anchor plus its sampled points, kept so the feature can be drawn. */
+const anchorPoints = [];
+
+function renderMulti() {
+  const body = $("#multiBody");
+  if (!anchorColor) {
+    body.innerHTML = `<tr><td colspan="3" class="empty">先取锚点,再在图像上单击若干位置作为偏移点</td></tr>`;
+    return;
+  }
+  const rows = [];
+  rows.push(`<tr><td>锚点</td><td><span class="swatch" style="background:${anchorColor}"></span> ${anchorColor}` +
+    ` <span class="hint">(${anchorPoints[0]?.x ?? "?"}, ${anchorPoints[0]?.y ?? "?"})</span></td>` +
+    `<td class="hint">基准位置</td></tr>`);
+  offsetPoints.forEach((p, i) => {
+    rows.push(`<tr><td>#${i + 1}</td>` +
+      `<td><span class="swatch" style="background:${p.color}"></span> ${p.color}</td>` +
+      `<td>dx=${p.dx}, dy=${p.dy}</td></tr>`);
+  });
+  body.innerHTML = rows.join("");
+}
+
+$("#btnSetAnchor").addEventListener("click", async () => {
+  const color = $("#pickColor").value.trim();
+  if (!/^#?[0-9a-fA-F]{6}$/.test(color)) {
+    $("#multiInfo").textContent = "请先单击图像取一个颜色";
+    return;
+  }
+  anchorColor = color.startsWith("#") ? color : "#" + color;
+  anchorPoints.length = 0;
+  offsetPoints.length = 0;
+  $("#multiInfo").textContent = "锚点已设 — 现在在图像上单击要作为特征的其它位置";
+  // Remember where the anchor was, so the feature can be drawn in place.
+  anchorPoints.push({ ...lastPickPos });
+  renderMulti();
+  drawMarks();
+});
+
+async function addOffsetPoint(p) {
+  const c = await rpc({ cmd: "colorat", x: p.x, y: p.y });
+  if (!c.ok) return;
+  const anchor = anchorPoints[0] ?? p;
+  offsetPoints.push({
+    dx: p.x - anchor.x,
+    dy: p.y - anchor.y,
+    color: c.data.color,
+  });
+  anchorPoints.push(p);
+  $("#multiInfo").textContent = `已加 ${offsetPoints.length} 个偏移点`;
+  renderMulti();
+  drawMarks();
+}
+
+$("#btnFindMulti").addEventListener("click", async () => {
+  if (!anchorColor || offsetPoints.length === 0) {
+    $("#multiInfo").textContent = "需要 1 个锚点 + 至少 1 个偏移点";
+    return;
+  }
+  const cmd = {
+    cmd: "findmulti",
+    anchor: anchorColor,
+    points: offsetPoints.map((p) => [p.dx, p.dy, p.color]),
+    tolerance: Number($("#tolerance").value) || 0,
+    max: 20,
+  };
+  const region = parseRegion($("#colorRegion").value);
+  if (region) cmd.region = region;
+
+  const reply = await rpc(cmd);
+  if (!reply.ok) {
+    $("#multiInfo").textContent = "失败: " + (reply.error ?? reply.code ?? "");
+    return;
+  }
+  const hits = reply.data.matches ?? [];
+  drawMarks(hits);
+  $("#multiInfo").textContent =
+    `多点找色 → ${reply.data.count} 处 · 试过 ${reply.data.anchorsTried} 个锚点像素`;
+});
+
+$("#btnClearMulti").addEventListener("click", () => {
+  anchorColor = null;
+  anchorPoints.length = 0;
+  offsetPoints.length = 0;
+  $("#multiInfo").textContent = "";
+  renderMulti();
+  drawMarks();
+});
+
+/* ---- single colour ---- */
+$("#btnFindColor").addEventListener("click", async () => {
+  const color = $("#pickColor").value.trim();
+  if (!/^#?[0-9a-fA-F]{6}$/.test(color)) {
+    $("#pathInfo") && ($("#pathInfo").textContent = "");
+    $("#multiInfo").textContent = "请先单击图像取一个颜色";
+    return;
+  }
+  const cmd = {
+    cmd: "findcolor",
+    color: color.startsWith("#") ? color : "#" + color,
+    tolerance: Number($("#tolerance").value) || 0,
+    max: 50,
+  };
+  const region = parseRegion($("#colorRegion").value);
+  if (region) cmd.region = region;
+
+  const reply = await rpc(cmd);
+  if (!reply.ok) {
+    $("#multiInfo").textContent = "找色失败: " + (reply.error ?? reply.code ?? "");
+    return;
+  }
+  const hits = reply.data.clusters ?? [];
+  drawMarks(hits);
+  $("#multiInfo").textContent =
+    `找色 ${cmd.color} ±${cmd.tolerance} → ${reply.data.clusterCount ?? hits.length} 处` +
+    ` / ${reply.data.count ?? 0} 像素` + (reply.data.truncated ? " (已截断)" : "");
+});
+
+/* ---------------- findimage ---------------- */
+/** Base64 of a locally chosen template image, when one is selected. */
+let localTemplate = null;
+
+function templateFromBitmap(source, l, t, w, h) {
+  const cv = document.createElement("canvas");
+  cv.width = Math.max(1, w);
+  cv.height = Math.max(1, h);
+  cv.getContext("2d").drawImage(source, l, t, w, h, 0, 0, cv.width, cv.height);
+  return cv.toDataURL("image/png").split(",")[1];
+}
+
+async function searchWithTemplate(base64, label) {
+  const reply = await rpc({
+    cmd: "findimage",
+    template: base64,
+    threshold: Number($("#tplThreshold").value) || 0.85,
+    max: Number($("#tplMax").value) || 20,
+  });
+  if (!reply.ok) {
+    $("#tplInfo").textContent = "找图失败: " + (reply.error ?? reply.code ?? "");
+    return;
+  }
+  const hits = reply.data.matches ?? [];
+  drawMarks(hits);
+  $("#tplInfo").textContent =
+    `${label} → 命中 ${reply.data.count ?? hits.length} 处` +
+    (reply.data.coarseScale ? ` · 粗搜缩放 ${reply.data.coarseScale}` : "");
+}
+
+$("#btnFindImage").addEventListener("click", async () => {
+  if (!selectedRegion) {
+    $("#tplInfo").textContent = "请先在图像上 Shift+拖动选一块区域";
+    return;
+  }
+  const [l, t, r, b] = selectedRegion;
+  if (r - l < 9 || b - t < 9) {
+    $("#tplInfo").textContent = "选区太小,至少 10×10";
+    return;
+  }
+
+  // Say what is happening and roughly how long: the full-resolution frame is the
+  // slow part (~1.2s), and silence is what made this look hung.
+  $("#tplInfo").textContent = "取全分辨率截图…(约 1.2 秒)";
+  const full = await fetchWithTimeout("/shot?scale=1&quality=95", {}, 60000);
+  if (!full.ok) {
+    $("#tplInfo").textContent = "取全分辨率截图失败(可改用本地图片)";
+    return;
+  }
+  $("#tplInfo").textContent = "裁剪模板…";
+  const bmp = await createImageBitmap(await full.blob());
+  const base64 = templateFromBitmap(bmp, l, t, r - l, b - t);
+  $("#tplPreview").innerHTML =
+    `<img src="data:image/png;base64,${base64}" ` +
+    `style="max-height:70px;border:1px solid var(--line);border-radius:4px">`;
+  await searchWithTemplate(base64, `选区 [${l},${t},${r},${b}] ${r - l}×${b - t}`);
+});
+
+$("#tplFile").addEventListener("change", async (e) => {
+  const file = e.target.files?.[0];
+  if (!file) {
+    localTemplate = null;
+    $("#tplPreview").innerHTML = "";
+    return;
+  }
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  let binary = "";
+  // Chunked: spreading a whole megabyte into String.fromCharCode overflows the
+  // argument list and throws.
+  for (let i = 0; i < bytes.length; i += 8192) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + 8192));
+  }
+  localTemplate = btoa(binary);
+  $("#tplPreview").innerHTML =
+    `<img src="${URL.createObjectURL(file)}" ` +
+    `style="max-height:70px;border:1px solid var(--line);border-radius:4px"> ` +
+    `<span class="hint">${escapeHtml(file.name)} · ${Math.round(file.size / 1024)}KB</span>`;
+  $("#tplInfo").textContent = "本地图片已就绪,点「用本地图片找图」";
+});
+
+$("#btnFindImageFile").addEventListener("click", async () => {
+  if (!localTemplate) {
+    $("#tplInfo").textContent = "请先选择一张本地图片";
+    return;
+  }
+  await searchWithTemplate(localTemplate, "本地图片");
+});
+
+$("#btnClearSel").addEventListener("click", () => {
+  selectedRegion = null;
+  localTemplate = null;
+  $("#tplRegion").value = "";
+  $("#tplFile").value = "";
+  $("#tplPreview").innerHTML = "";
+  $("#tplInfo").textContent = "已清除";
+  drawMarks();
+});
+
+/* ---------------- OCR / findtext ---------------- */
+async function runOcr() {
+  const cmd = { cmd: "ocr" };
+  const region = parseRegion($("#ocrRegion").value);
+  if (region) cmd.region = region;
+  const reply = await rpc(cmd);
+  if (!reply.ok) { $("#ocrText").textContent = "OCR 失败: " + (reply.error ?? ""); return; }
+  $("#ocrText").textContent = reply.data.fullText || "(无文字)";
+  $("#ocrInfo").textContent =
+    `${reply.data.blockCount} 块 / ${reply.data.lineCount} 行 / ${reply.data.elementCount} 元素`;
+}
+$("#btnOcr").addEventListener("click", runOcr);
+
+$("#btnFindText").addEventListener("click", async () => {
+  const text = $("#inpFind").value.trim();
+  if (!text) return;
+  const reply = await rpc({
+    cmd: "findtext", text,
+    mode: $("#selFindMode").value,
+    source: $("#selFindSource").value,
+    tappable: true,
+  });
+  if (!reply.ok) { $("#findInfo").textContent = "失败: " + (reply.error ?? ""); return; }
+  const hits = reply.data.matches ?? [];
+  lastFound = hits[0]
+    ? (hits[0].tapTarget?.center ?? hits[0].center)
+    : null;
+  $("#findInfo").textContent =
+    `命中 ${reply.data.count} 处 (来源 ${reply.data.source})` +
+    (lastFound ? ` · 目标 ${lastFound.join(",")}` : "");
+  drawMarks(hits.map((h) => ({
+    center: h.tapTarget?.center ?? h.center,
+    bounds: h.tapTarget?.bounds,
+  })));
+});
+
+$("#btnTapFound").addEventListener("click", async () => {
+  if (!lastFound) { $("#findInfo").textContent = "先查找一次"; return; }
+  await rpc({ cmd: "tap", x: lastFound[0], y: lastFound[1] });
+  $("#findInfo").textContent += " → 已点击";
+});
+
+$("#btnType").addEventListener("click", async () => {
+  const text = $("#inpText").value;
+  if (!text) return;
+  await rpc({ cmd: "text", text });
+});
+$("#btnSend").addEventListener("click", () => rpc({ cmd: "send" }));
+$("#btnDelete").addEventListener("click", () => rpc({ cmd: "delete", count: 1 }));
+$("#btnClearField").addEventListener("click", () => rpc({ cmd: "clear" }));
+
+/* ---------------- node tree ---------------- */
+async function loadTree() {
+  $("#tree").innerHTML = '<div class="hint" style="padding:8px">加载节点树…</div>';
+  const reply = await rpc({ cmd: "uitree", interactiveOnly: false });
+  if (!reply || reply.ok !== true) {
+    $("#tree").innerHTML = `<div style="color:var(--err);padding:8px">加载失败: ` +
+      `${escapeHtml(String(reply?.error ?? reply?.code ?? "无响应"))}</div>`;
+    return;
+  }
+  const root = reply.data?.root;
+  if (!root) {
+    $("#tree").innerHTML = '<div class="hint" style="padding:8px">返回里没有节点树</div>';
+    return;
+  }
+  const box = $("#tree");
+  box.innerHTML = "";
+  let shown = 0;
+  const walk = (node) => {
+    const useful = node.clickable || node.scrollable || node.editable ||
+      (node.text && node.text.length) || (node.desc && node.desc.length) || node.viewId;
+    if (useful) { renderNode(node, box); shown++; }
+    (node.children ?? []).forEach(walk);
+  };
+  walk(root);
+  $("#treeMeta").textContent =
+    `${shown} 个有用 / 共 ${reply.data.nodeCount ?? "?"}` +
+    (reply.data.truncated ? " (截断)" : "");
+}
+
+function renderNode(node, box) {
+  const div = document.createElement("div");
+  div.className = "node";
+  div.style.paddingLeft = (6 + (node.depth ?? 0) * 10) + "px";
+
+  const cls = node.cls ?? "";
+  const short = cls.includes(".") ? cls.split(".").pop() : cls;
+  const text = node.text ? `"${node.text}"` : (node.desc ? `[${node.desc}]` : "");
+  const bits = [];
+  if (node.clickable) bits.push('<span class="clk">可点</span>');
+  if (node.scrollable) bits.push('<span class="attr">可滚</span>');
+  if (node.editable) bits.push('<span class="attr">可编辑</span>');
+  if (node.viewId) bits.push(`<span class="attr">#${String(node.viewId).split("/").pop()}</span>`);
+
+  div.innerHTML = `<span class="cls">${short}</span> ` +
+    `<span class="txt">${escapeHtml(text)}</span> ` + bits.join(" ");
+  div.addEventListener("click", () => {
+    document.querySelectorAll(".node.sel").forEach((n) => n.classList.remove("sel"));
+    div.classList.add("sel");
+    highlightNode(node);
+    showDetail(node);
+    lastNode = node;
+  });
+  box.appendChild(div);
+}
+
+function highlightNode(node) {
+  const svg = $("#nodebox");
+  const b = node?.bounds;
+  if (!b || screen.w === 0) { svg.innerHTML = ""; return; }
+  const r = stageBox(svg);
+  const sx = r.width / screen.w, sy = r.height / screen.h;
+  const [l, t, rr, bb] = b;
+  const x = l * sx, y = t * sy;
+  const w = Math.max(2, (rr - l) * sx), h = Math.max(2, (bb - t) * sy);
+  const label = `${l},${t}  ${rr - l}×${bb - t}`;
+  const ly = y > 20 ? y - 6 : y + 16;
+  svg.innerHTML = `<rect x="${x}" y="${y}" width="${w}" height="${h}"/>` +
+    `<text x="${x}" y="${ly}">${escapeHtml(label)}</text>`;
+}
+
+function showDetail(node) {
+  const rows = [
+    ["class", node.cls], ["text", node.text], ["desc", node.desc],
+    ["viewId", node.viewId], ["package", node.pkg ?? node.package],
+    ["bounds", node.bounds ? `[${node.bounds.join(", ")}]` : ""],
+    ["center", node.center ? node.center.join(", ") : ""],
+    ["clickable", node.clickable], ["scrollable", node.scrollable],
+    ["editable", node.editable], ["enabled", node.enabled], ["depth", node.depth],
+  ].filter(([, v]) => v !== undefined && v !== null && v !== "");
+
+  const selectors = [];
+  if (node.viewId) selectors.push({ label: "viewId", json: { viewId: node.viewId } });
+  if (node.text) {
+    selectors.push({ label: "text", json: { text: node.text } });
+    selectors.push({ label: "textContains", json: { textContains: node.text } });
+  }
+  if (node.desc) selectors.push({ label: "desc", json: { desc: node.desc } });
+  if (node.cls && node.clickable) selectors.push({ label: "class+可点", json: { cls: node.cls, clickable: true } });
+
+  const selHtml = selectors.length
+    ? selectors.map((s) =>
+        `<div><b>${s.label}</b><code class="selcode" data-sel='${escapeHtml(JSON.stringify(s.json))}'>` +
+        `${escapeHtml(JSON.stringify(s.json))}</code></div>`).join("")
+    : `<div class="hint">没有可用于 find 的选择器</div>`;
+
+  $("#detail").innerHTML =
+    rows.map(([k, v]) => `<div><b>${k}</b>${escapeHtml(String(v))}</div>`).join("") +
+    `<div style="margin-top:10px;border-top:1px solid var(--line);padding-top:8px">` +
+    `<b style="color:var(--ink)">可用选择器</b>${selHtml}</div>`;
+
+  $("#detail").querySelectorAll("code.selcode").forEach((el) => {
+    el.addEventListener("click", () => {
+      navigator.clipboard?.writeText(el.dataset.sel);
+      el.style.color = "#22c55e";
+      setTimeout(() => (el.style.color = "#7dd3fc"), 600);
+    });
+  });
+
+  // Seed the ad-rule field so "add to skip rules" is one click away from picking
+  // the node. It stays editable: the generated selector is a starting point, and
+  // the tester is usually the one who knows which attribute is stable.
+  const adField = $("#inpAdSelector");
+  if (adField) adField.value = selectorForNode(node);
+}
+
+/* ---- author an ad-skip rule from the selected node ---- */
+function adInfo(text, ok = true) {
+  const div = document.createElement("div");
+  div.innerHTML = `<span class="t">${new Date().toLocaleTimeString()}</span> ` +
+    `<span class="${ok ? "ok" : "er"}">${ok ? "✓" : "✗"}</span> ${escapeHtml(text)}`;
+  const box = $("#adInfo");
+  if (box.childElementCount === 1 && box.firstElementChild.classList.contains("t")) box.innerHTML = "";
+  box.prepend(div);
+  while (box.childElementCount > 30) box.lastChild.remove();
+}
+
+/**
+ * Build the most specific selector the node supports.
+ *
+ * Ordered by how much they survive: a resource id is stable across builds, text is
+ * stable but language-dependent, a description is often the only handle on an icon,
+ * and a bare class matches far too much to be useful on its own. GKD's `vid` form is
+ * preferred for ids because rules written by the community use the short name.
+ */
+function selectorForNode(node) {
+  if (node.viewId) {
+    const short = String(node.viewId).split("/").pop();
+    if (short) return `[vid="${short}"]`;
+    return `[id="${node.viewId}"]`;
+  }
+  if (node.text) return `[text="${node.text}"]`;
+  if (node.desc) return `[desc="${node.desc}"]`;
+  const cls = node.cls ? String(node.cls).split(".").pop() : "";
+  if (cls && node.clickable) return `${cls}[clickable=true]`;
+  if (cls) return `[cls="${node.cls}"]`;
+  return "";
+}
+
+async function loadAdRules() {
+  const reply = await rpc({ cmd: "adrule", op: "list" });
+  if (!reply.ok) { adInfo("读取规则失败: " + (reply.error ?? ""), false); return; }
+  const sel = $("#selAdRule");
+  sel.innerHTML = '<option value="-1">+ 新建规则</option>';
+  const groups = reply.data.groups ?? [];
+  // Only manual rules are offered as targets. Appending to a downloaded community
+  // rule would be silently reverted the next time that subscription is refreshed.
+  const manual = groups.filter((g) => g.subscriptionUrl === "manual://local");
+  for (const g of manual) {
+    const opt = document.createElement("option");
+    opt.value = `${g.package}|${g.key}`;
+    opt.textContent = `${g.appName} · ${g.name} (${g.selectors.length})`;
+    sel.appendChild(opt);
+  }
+  adInfo(`共 ${groups.length} 条规则,其中手动 ${manual.length} 条可选`);
+}
+
+$("#btnAdReload").addEventListener("click", loadAdRules);
+
+$("#btnAdTestSel").addEventListener("click", async () => {
+  const sel = $("#inpAdSelector").value.trim();
+  if (!sel) { adInfo("选择器为空", false); return; }
+  const reply = await rpc({ cmd: "find", selector: parseSelectorHint(sel), interactiveOnly: false });
+  if (!reply.ok) { adInfo(`不受支持或查找失败: ${reply.error ?? ""}`, false); return; }
+  adInfo(`当前屏幕上命中 ${reply.data.count} 个节点` +
+    (reply.data.count === 0 ? " —— 这个选择器现在点不到东西" : ""));
+});
+
+/** Turn our display form back into the find command's selector object. */
+function parseSelectorHint(sel) {
+  let m = sel.match(/^\[vid="(.+)"\]$/);
+  if (m) return { viewIdContains: m[1] };
+  m = sel.match(/^\[id="(.+)"\]$/);
+  if (m) return { viewId: m[1] };
+  m = sel.match(/^\[text="(.*)"\]$/);
+  if (m) return { text: m[1] };
+  m = sel.match(/^\[desc="(.*)"\]$/);
+  if (m) return { desc: m[1] };
+  m = sel.match(/^(\w+)\[clickable=true\]$/);
+  if (m) return { cls: m[1], clickable: true };
+  return { textContains: sel };
+}
+
+$("#btnAdAdd").addEventListener("click", async () => {
+  const n = lastNode;
+  if (!n) { adInfo("请先在节点树里选一个节点", false); return; }
+
+  const selector = $("#inpAdSelector").value.trim() || selectorForNode(n);
+  if (!selector) { adInfo("这个节点没有可用的属性来生成选择器", false); return; }
+
+  const target = $("#selAdRule").value;
+  const pkg = n.pkg ?? n.package ?? "";
+  if (!pkg) { adInfo("节点里没有包名,无法定位规则归属", false); return; }
+
+  const cmd = {
+    cmd: "adrule",
+    op: "add",
+    package: pkg,
+    appName: pkg,
+    selectors: [selector],
+    action: $("#selAdAction").value,
+  };
+  if (target === "-1") {
+    cmd.ruleName = $("#inpAdRuleName").value.trim() || `手动规则 ${selector}`;
+  } else {
+    const [gpkg, gkey] = target.split("|");
+    cmd.package = gpkg;
+    cmd.groupKey = Number(gkey);
+  }
+  if (n.bounds && n.cls && String(n.cls).includes("Activity")) {
+    cmd.activityIds = [String(n.cls)];
+  }
+
+  const reply = await rpc(cmd);
+  if (!reply.ok) { adInfo(`添加失败: ${reply.error ?? ""}`, false); return; }
+  adInfo(`已${reply.data.created ? "新建" : "追加到"}「${reply.data.ruleName}」` +
+    ` · 共 ${reply.data.selectorCount} 个选择器 · ${reply.data.enabled ? "已启用" : "未启用"}`);
+  $("#inpAdSelector").value = "";
+  await loadAdRules();
+});
+
+/* ---- node-scoped execution ---- */
+function nodeTarget() {
+  if (!lastNode?.center) { nodeExec("未选中节点", false); return null; }
+  return lastNode;
+}
+
+$("#btnNodeTap").addEventListener("click", async () => {
+  const n = nodeTarget(); if (!n) return;
+  const r = await rpc({ cmd: "tap", x: n.center[0], y: n.center[1] });
+  nodeExec(`点击 (${n.center.join(",")}) → ${r.ok ? "成功" : r.error}`, r.ok);
+  setTimeout(refresh, 500);
+});
+
+$("#btnNodeDouble").addEventListener("click", async () => {
+  const n = nodeTarget(); if (!n) return;
+  const r = await rpc({ cmd: "doubletap", x: n.center[0], y: n.center[1] });
+  nodeExec(`双击 (${n.center.join(",")}) → ${r.ok ? "成功" : r.error}`, r.ok);
+  setTimeout(refresh, 500);
+});
+
+$("#btnNodeLong").addEventListener("click", async () => {
+  const n = nodeTarget(); if (!n) return;
+  const r = await rpc({ cmd: "longpress", x: n.center[0], y: n.center[1], holdMs: 650 });
+  nodeExec(`长按 (${n.center.join(",")}) → ${r.ok ? "成功" : r.error}`, r.ok);
+  setTimeout(refresh, 500);
+});
+
+/**
+ * "Click into it, then type" is the only reliable way to fill a field.
+ *
+ * Setting text on a node by selector is not something the phone exposes, and even
+ * if it did, most fields only accept input once focused. Tapping first mirrors what
+ * a person does, and the two steps are reported separately so a failure says which
+ * half went wrong.
+ */
+$("#btnNodeInput").addEventListener("click", async () => {
+  const n = nodeTarget(); if (!n) return;
+  const text = $("#inpNodeText").value;
+  if (!text) { nodeExec("输入内容为空", false); return; }
+
+  const tap = await rpc({ cmd: "tap", x: n.center[0], y: n.center[1] });
+  nodeExec(`① 点击 (${n.center.join(",")}) → ${tap.ok ? "成功" : tap.error}`, tap.ok);
+  if (!tap.ok) return;
+
+  await new Promise((r) => setTimeout(r, 400));
+  const typed = await rpc({ cmd: "text", text });
+  nodeExec(`② 输入 "${text}" → ${typed.ok ? "成功" : typed.error}`, typed.ok);
+  setTimeout(refresh, 500);
+});
+
+$("#btnNodeScroll").addEventListener("click", async () => {
+  const r = await rpc({ cmd: "scroll", direction: "forward" });
+  nodeExec(`滚动 → ${r.ok ? "成功" : r.error}`, r.ok);
+  setTimeout(refresh, 500);
+});
+
+$("#btnNodeCopySel").addEventListener("click", () => {
+  const n = nodeTarget(); if (!n) return;
+  const sel = JSON.stringify(selectorFor(n));
+  navigator.clipboard?.writeText(sel);
+  nodeExec(`已复制选择器 ${sel}`);
+});
+
+$("#btnNodeCopyCenter").addEventListener("click", () => {
+  const n = nodeTarget(); if (!n) return;
+  const p = n.center.join(",");
+  navigator.clipboard?.writeText(p);
+  nodeExec(`已复制坐标 ${p}`);
+});
+
+function selectorFor(node) {
+  if (node.viewId) return { viewId: node.viewId };
+  if (node.text) return { textContains: node.text };
+  if (node.desc) return { desc: node.desc };
+  return { cls: node.cls };
+}
+
+$("#btnLoadTree").addEventListener("click", loadTree);
+$("#btnHideBox").addEventListener("click", () => { $("#nodebox").innerHTML = ""; });
+
+/* ---------------- device tab ---------------- */
+async function loadDevice() {
+  const r = await rpc({ cmd: "device" });
+  if (!r.ok) {
+    $("#deviceInfo").innerHTML = `<span style="color:var(--err)">读取失败: ${escapeHtml(r.error ?? "")}</span>`;
+    return;
+  }
+  const d = r.data;
+  $("#deviceInfo").innerHTML = [
+    ["型号", `${d.manufacturer} ${d.model}`],
+    ["系统", `Android ${d.android} (API ${d.sdk})`],
+    ["屏幕", `${d.screenWidth}×${d.screenHeight} · 旋转 ${d.rotation}°`],
+    ["电量", `${d.battery.percent}% ${d.battery.charging ? "(充电中)" : ""} · ${d.battery.temperature}°C`],
+    ["亮度", `${d.brightness.percent}% ${d.brightness.writable ? "" : "(只读)"}`],
+    ["音量", `媒体 ${d.volume.music.current}/${d.volume.music.max} · 铃声 ${d.volume.ring.current}/${d.volume.ring.max}`],
+    ["网络", `${d.network.type}`],
+    ["存储", `${d.storage.usedPercent}%`],
+    ["屏幕", d.screenOn ? "亮屏" : "息屏"],
+    ["运行时长", `${Math.round((d.service?.uptimeMs ?? 0) / 1000)}s`],
+    ["操作数", String(d.service?.operations ?? "")],
+  ].filter(([, v]) => v !== undefined && v !== null && v !== "" && v !== "undefined")
+    .map(([k, v]) => `<div><b>${k}</b>${escapeHtml(String(v))}</div>`).join("");
+
+  if (d.volume?.music) {
+    $("#volInfo").textContent = `当前 ${d.volume.music.current}/${d.volume.music.max}`;
+  }
+  if (d.brightness) {
+    $("#brightInfo").textContent =
+      `当前 ${d.brightness.percent}%` + (d.brightness.writable ? "" : " (缺 WRITE_SETTINGS)");
+  }
+}
+
+async function loadPerms() {
+  $("#permGrid").innerHTML = '<div class="hint">检查中…</div>';
+  const r = await rpc({ cmd: "perms" });
+  if (!r.ok) {
+    $("#permGrid").innerHTML = `<div style="color:var(--err)">检查失败: ${escapeHtml(r.error ?? "")}</div>`;
+    return;
+  }
+  $("#permGrid").innerHTML = (r.data.items ?? []).map((it) => {
+    const cls = it.ok ? (it.warn ? "warn" : "ok") : "bad";
+    const mark = it.ok ? (it.warn ? "⚠" : "✓") : "✗";
+    return `<div class="perm ${cls}" title="${escapeHtml(it.name)}: ${escapeHtml(it.detail)}">` +
+      `<div class="name">${escapeHtml(it.name)}</div>` +
+      `<div class="state">${mark}</div>` +
+      `<div class="detail">${escapeHtml(it.detail)}</div></div>`;
+  }).join("");
+  $("#permInfo").textContent = `${r.data.okCount}/${r.data.count} 项正常`;
+}
+
+$("#btnDevice").addEventListener("click", loadDevice);
+$("#btnPermRefresh").addEventListener("click", loadPerms);
+
+/* system actions */
+document.querySelectorAll("[data-act]").forEach((btn) => {
+  btn.addEventListener("click", async () => {
+    const v = btn.dataset.act;
+    if (v === "wake") {
+      await rpc({ cmd: "wake" });
+    } else if (v.startsWith("key:")) {
+      await rpc({ cmd: "key", key: v.slice(4) });
+    }
+    setTimeout(loadDevice, 600);
+    if (!live) setTimeout(refresh, 600);
+  });
+});
+
+/* volume */
+document.querySelectorAll("[data-vol]").forEach((btn) => {
+  btn.addEventListener("click", async () => {
+    await rpc({ cmd: "volume", volumeAction: btn.dataset.vol, stream: "music" });
+    setTimeout(loadDevice, 400);
+  });
+});
+
+$("#btnBright").addEventListener("click", async () => {
+  const pct = Number($("#brightPct").value);
+  if (Number.isNaN(pct)) return;
+  await rpc({ cmd: "brightness", percent: pct });
+  setTimeout(loadDevice, 400);
+});
+
+$("#btnSweep").addEventListener("click", async () => {
+  $("#sweepInfo").textContent = "扫描中…";
+  $("#sweepText").textContent = "";
+  const region = parseRegion($("#swRegion").value);
+  const cmd = {
+    cmd: "sweep",
+    scrolls: Number($("#swScrolls").value) || 40,
+    distance: Number($("#swDist").value) || 1100,
+    perCapture: Number($("#swPer").value) || 2,
+    settleMs: 700, durationMs: 420,
+  };
+  if (region) cmd.region = region;
+  const t0 = Date.now();
+  const r = await rpc(cmd);
+  if (!r.ok) { $("#sweepInfo").textContent = "失败: " + (r.error ?? ""); return; }
+  $("#sweepInfo").textContent =
+    `滚动 ${r.data.scrolls} 次 / ${r.data.lineCount} 行 / ` +
+    `${((Date.now() - t0) / 1000).toFixed(1)}s / ${r.data.stopReason}`;
+  $("#sweepText").textContent = (r.data.lines ?? []).join("\n");
+});
+
+$("#btnApps").addEventListener("click", async () => {
+  const q = $("#inpAppQuery").value.trim();
+  const cmd = { cmd: "apps" }; if (q) cmd.query = q;
+  const r = await rpc(cmd);
+  if (!r.ok) return;
+  $("#deviceInfo").innerHTML = (r.data.apps ?? []).slice(0, 40)
+    .map((a) => `<div><b>${escapeHtml(a.label || "-")}</b>${escapeHtml(a.package)}</div>`).join("");
+});
+$("#btnStopApp").addEventListener("click", async () => {
+  const pkg = $("#inpAppQuery").value.trim();
+  if (!pkg) return;
+  await rpc({ cmd: "stopapp", package: pkg });
+});
+$("#btnLaunch").addEventListener("click", async () => {
+  const pkg = $("#inpLaunch").value.trim();
+  if (!pkg) return;
+  await rpc({ cmd: "launch", package: pkg });
+});
+
+/* ---------------- skill tab ---------------- */
+$("#btnSkillLoad").addEventListener("click", async () => {
+  $("#skillText").textContent = "读取中…";
+  const r = await rpc({ cmd: "skill" });
+  if (!r.ok) {
+    $("#skillText").textContent = "读取失败: " + (r.error ?? "");
+    return;
+  }
+  $("#skillText").textContent = r.data.text || "(空)";
+  $("#skillInfo").textContent = `${(r.data.text || "").length} 字符 · 来源 ${r.data.source}`;
+});
+
+$("#btnSkillCopy").addEventListener("click", () => {
+  const t = $("#skillText").textContent;
+  if (!t || t.startsWith("读取中") || t.startsWith("点「")) return;
+  navigator.clipboard?.writeText(t);
+  $("#skillInfo").textContent = "已复制全文";
+});
+
+$("#btnSkillCopyEndpoint").addEventListener("click", async () => {
+  const info = [
+    "# DSH Phone Agent 接入信息",
+    "",
+    `TCP 控制端口: ${location.hostname}:7912`,
+    `HTTP 控制台:  http://${location.hostname}:7913/`,
+    "",
+    "协议: 一行一个 JSON (UTF-8, \\n 分隔)",
+    '示例: {"id":1,"cmd":"screenshot","scale":0.5}',
+    '响应: {"id":1,"ok":true,"data":{...}}',
+    "",
+    "常用命令速查:",
+    "  info / device / perms        设备与权限",
+    "  observe / screenshot         截图",
+    "  uitree / find / findtext     节点与查找",
+    "  ocr / sweep                  识字与长列表",
+    "  colorat / findcolor / findmulti / findimage   图色",
+    "  tap / swipe / longpress / text / key          操作",
+  ].join("\n");
+  navigator.clipboard?.writeText(info);
+  $("#skillInfo").textContent = "已复制接入信息";
+});
+
+/* ---------------- connection watchdog ---------------- */
+/**
+ * Connection state, derived from whether work is actually completing.
+ *
+ * There is no separate heartbeat protocol, and one is not needed: when streaming,
+ * every delivered frame is a liveness signal, and when idle a lightweight `ping`
+ * serves the same purpose. Deriving the badge from real traffic means it reflects
+ * the phone being reachable *for commands*, which is the thing that matters —
+ * a socket that accepts connections but never answers would look "up" to a naive
+ * port check.
+ */
+let lastAliveAt = Date.now();
+let watchdogBusy = false;
+
+function markAlive() { lastAliveAt = Date.now(); }
+
+function updateConnBadge() {
+  const age = Date.now() - lastAliveAt;
+  const el = $("#connBadge");
+  if (age < 6000) { el.textContent = "● 在线"; el.style.color = "var(--ok)"; }
+  else if (age < 15000) { el.textContent = "● 迟滞"; el.style.color = "var(--warn)"; }
+  else { el.textContent = "● 掉线"; el.style.color = "var(--err)"; }
+}
+
+setInterval(async () => {
+  updateConnBadge();
+  // While streaming, frame arrival already proves liveness — do not add traffic.
+  if (live || watchdogBusy || busy > 0) return;
+  watchdogBusy = true;
+  try {
+    const r = await rpc({ cmd: "ping" });
+    if (r.ok) markAlive();
+    $("#devPing").textContent = r.ok ? `ping ${r.elapsedMs ?? "?"}ms` : "";
+  } finally {
+    watchdogBusy = false;
+  }
+}, 4000);
+
+/* ---------------- gesture tab ---------------- */
+function readGestures() {
+  const num = (id) => {
+    const v = $(id).value.trim();
+    return v === "" ? null : Number(v);
+  };
+  return {
+    x1: num("#gx1"), y1: num("#gy1"), x2: num("#gx2"), y2: num("#gy2"),
+    dur: Number($("#gdur").value) || 500,
+    brake: num("#gbrake"),
+  };
+}
+
+async function runSwipe() {
+  const g = readGestures();
+  if (g.x1 == null || g.y1 == null || g.x2 == null || g.y2 == null) {
+    $("#pathInfo").textContent = "请填写完整的起点和终点坐标";
+    return;
+  }
+  const cmd = {
+    cmd: "swipemeasure", x1: g.x1, y1: g.y1, x2: g.x2, y2: g.y2,
+    durationMs: g.dur, settleMs: 900,
+  };
+  if (g.brake != null) cmd.brakeMs = g.brake;
+  const reply = await rpc(cmd);
+  if (!reply.ok) { $("#pathInfo").textContent = "失败: " + (reply.error ?? ""); return; }
+
+  const d = reply.data;
+  const pts = (d.path ?? []).map((p) => [p[0], p[1], p[2]]);
+  if ($("#btnPath").classList.contains("on") && pts.length) drawPath(pts, true);
+
+  const eff = d.contentShift >= 0 ? Math.round(d.efficiency * 100) + "%" : "—";
+  const shift = d.contentShift >= 0 ? d.contentShift + "px" : "无法测量";
+  $("#pathInfo").innerHTML =
+    `手指 <b>${d.fingerDistance}px</b> → 内容 <b style="color:${d.contentShift >= 0 ? "#22c55e" : "#f59e0b"}">${shift}</b> ` +
+    `(效率 ${eff}) · ${d.durationMs}+${d.brakeMs ?? "?"}ms · 轨迹 ${pts.length} 点`;
+  if ($("#btnAuto").classList.contains("on")) setTimeout(refresh, 500);
+}
+
+function drawPath(points, showIdeal) {
+  const svg = $("#overlay");
+  const r = stageBox(svg);
+  const sx = r.width / (screen.w || 1);
+  const sy = r.height / (screen.h || 1);
+  const toView = (p) => [p[0] * sx, p[1] * sy];
+  const parts = [];
+
+  if (points.length < 2) {
+    if (points.length === 1) {
+      const a = toView(points[0]);
+      parts.push(`<circle cx="${a[0]}" cy="${a[1]}" r="7" fill="#22c55e"/>`);
+    }
+    svg.innerHTML = parts.join("");
+    return;
+  }
+
+  if (showIdeal) {
+    const a = toView(points[0]), b = toView(points[points.length - 1]);
+    parts.push(`<line class="ideal" x1="${a[0]}" y1="${a[1]}" x2="${b[0]}" y2="${b[1]}"/>`);
+  }
+
+  const speeds = [];
+  for (let i = 1; i < points.length; i++) {
+    const dist = Math.hypot(points[i][0] - points[i - 1][0], points[i][1] - points[i - 1][1]);
+    const dt = Math.max(1, points[i][2] - points[i - 1][2]);
+    speeds.push(dist / dt);
+  }
+  const peak = Math.max(...speeds, 0.001);
+
+  for (let i = 1; i < points.length; i++) {
+    const a = toView(points[i - 1]), b = toView(points[i]);
+    const t = Math.min(1, speeds[i - 1] / peak);
+    const hue = 210 - 180 * t;
+    parts.push(`<line x1="${a[0]}" y1="${a[1]}" x2="${b[0]}" y2="${b[1]}" ` +
+      `stroke="hsl(${hue},90%,58%)" stroke-width="${1.2 + 2.4 * t}" stroke-linecap="round"/>`);
+  }
+  const f = toView(points[0]), l = toView(points[points.length - 1]);
+  parts.push(`<circle cx="${f[0]}" cy="${f[1]}" r="7" fill="#22c55e"/>`);
+  parts.push(`<circle cx="${l[0]}" cy="${l[1]}" r="7" fill="#ef4444"/>`);
+  svg.innerHTML = parts.join("");
+}
+
+$("#btnSwipe").addEventListener("click", runSwipe);
+$("#btnTapPt").addEventListener("click", async () => {
+  const g = readGestures();
+  if (g.x1 == null) return;
+  await rpc({ cmd: "tap", x: g.x1, y: g.y1 });
+});
+$("#btnLongPt").addEventListener("click", async () => {
+  const g = readGestures();
+  if (g.x1 == null) return;
+  await rpc({ cmd: "longpress", x: g.x1, y: g.y1, holdMs: 650 });
+});
+$("#btnPath").addEventListener("click", (e) => {
+  const on = e.target.classList.toggle("on");
+  e.target.textContent = on ? "显示轨迹 开" : "显示轨迹 关";
+  if (!on) $("#overlay").innerHTML = "";
+});
+
+/* ---------------- pointer ---------------- */
+let dragStart = null;
+let lastPickPos = { x: 0, y: 0 };
+
+shot.addEventListener("pointerdown", (ev) => {
+  if (ev.button !== 0) return;
+  dragStart = { ...toPhone(ev), t: performance.now(), shift: ev.shiftKey };
+  shot.setPointerCapture(ev.pointerId);
+  const d = $("#dotA");
+  d.style.display = "block";
+  positionDot(d, dragStart);
+});
+
+shot.addEventListener("pointermove", (ev) => {
+  const p = toPhone(ev);
+  $("#cPtr").textContent = `${p.x}, ${p.y}`;
+  if (!dragStart) return;
+  const dx = p.x - dragStart.x, dy = p.y - dragStart.y;
+  const dist = Math.round(Math.hypot(dx, dy));
+  $("#cDrag").textContent = `${dragStart.x},${dragStart.y} → ${p.x},${p.y}  (${dist}px)`;
+
+  const box = $("#dragbox");
+  const r = shot.getBoundingClientRect();
+  const sx = dragStart.x / screen.w * r.width, sy = dragStart.y / screen.h * r.height;
+  const cx = p.x / screen.w * r.width, cy = p.y / screen.h * r.height;
+  box.style.display = "block";
+  box.style.left = Math.min(sx, cx) + "px";
+  box.style.top = Math.min(sy, cy) + "px";
+  box.style.width = Math.abs(cx - sx) + "px";
+  box.style.height = Math.abs(cy - sy) + "px";
+
+  const b = $("#dotB");
+  b.style.display = "block";
+  positionDot(b, p);
+});
+
+let clickTimer = null;
+function handleImageClick(p) {
+  lastPickPos = p;
+  if (clickTimer) {
+    clearTimeout(clickTimer);
+    clickTimer = null;
+    $("#gx2").value = p.x;
+    $("#gy2").value = p.y;
+    $("#cDrag").textContent = `终点 = (${p.x}, ${p.y})`;
+    return;
+  }
+  clickTimer = setTimeout(async () => {
+    clickTimer = null;
+    $("#gx1").value = p.x;
+    $("#gy1").value = p.y;
+    const c = await pickColorAt(p);
+    // In the colour tab, a click with an anchor already set adds a feature point.
+    if (anchorColor && $("#tab-color").classList.contains("on")) {
+      await addOffsetPoint(p);
+    }
+    $("#cDrag").textContent = `起点 = (${p.x}, ${p.y})` + (c ? ` · ${c}` : "");
+  }, 250);
+}
+
+shot.addEventListener("pointerup", async (ev) => {
+  if (!dragStart) return;
+  const end = toPhone(ev);
+  const held = performance.now() - dragStart.t;
+  const dist = Math.round(Math.hypot(end.x - dragStart.x, end.y - dragStart.y));
+  resetDrag();
+  const start = dragStart;
+  dragStart = null;
+
+  if (start.shift) {
+    if (dist >= 10) {
+      selectedRegion = [
+        Math.min(start.x, end.x), Math.min(start.y, end.y),
+        Math.max(start.x, end.x), Math.max(start.y, end.y),
+      ];
+      $("#tplRegion").value = `[${selectedRegion.join(", ")}]`;
+      $("#ocrRegion").value = selectedRegion.join(",");
+      $("#colorRegion").value = selectedRegion.join(",");
+      drawMarks();
+      $("#cDrag").textContent =
+        `选区 [${selectedRegion.join(", ")}]  ${selectedRegion[2] - selectedRegion[0]}×${selectedRegion[3] - selectedRegion[1]}`;
+    }
+    return;
+  }
+
+  if (dist < 25 && held < 900) { handleImageClick(start); return; }
+
+  if (dist >= 25) {
+    const duration = Math.max(120, Math.min(1200, Math.round(dist / 2.2)));
+    $("#gx1").value = start.x; $("#gy1").value = start.y;
+    $("#gx2").value = end.x;   $("#gy2").value = end.y;
+    $("#gdur").value = duration;
+    switchTab("gesture");
+    await runSwipe();
+  }
+});
+
+shot.addEventListener("wheel", async (ev) => {
+  ev.preventDefault();
+  const p = toPhone(ev);
+  const down = ev.deltaY > 0;
+  await rpc({
+    cmd: "swipe",
+    x1: p.x, y1: down ? p.y + 400 : p.y - 400,
+    x2: p.x, y2: down ? p.y - 400 : p.y + 400,
+    durationMs: 320,
+  });
+}, { passive: false });
+
+/* ---------------- toolbar ---------------- */
+function parseRegion(text) {
+  const v = (text ?? "").trim();
+  if (!v) return null;
+  const parts = v.split(",").map((s) => Number(s.trim()));
+  if (parts.length !== 4 || parts.some((n) => Number.isNaN(n))) return null;
+  return parts;
+}
+
+$("#btnUseSelRegion").addEventListener("click", () => {
+  if (selectedRegion) $("#colorRegion").value = selectedRegion.join(",");
+});
+$("#btnUseSelRegion2").addEventListener("click", () => {
+  if (selectedRegion) $("#ocrRegion").value = selectedRegion.join(",");
+});
+
+$("#btnRefresh").addEventListener("click", refresh);
+$("#btnLive").addEventListener("click", () => setLive(!live));
+$("#selFps").addEventListener("change", () => { if (live) setLive(true); });
+$("#selScale").addEventListener("change", () => { if (live) setLive(true); });
+$("#btnAuto").addEventListener("click", (e) => {
+  const on = e.target.classList.toggle("on");
+  e.target.textContent = on ? "自动刷新 开" : "自动刷新 关";
+  if (autoTimer) clearInterval(autoTimer);
+  // Auto-refresh and the stream are mutually exclusive: both would be fighting over
+  // the same <img>, and the stream already updates faster than the timer.
+  if (on && live) setLive(false);
+  if (on && !live) autoTimer = setInterval(refresh, 1500);
+});
+$("#btnClearLog").addEventListener("click", () => { logEl.innerHTML = ""; });
+// 快捷系统键
+document.querySelectorAll("[data-quick]").forEach((btn) => {
+  btn.addEventListener("click", async () => {
+    const v = btn.dataset.quick;
+    if (v.startsWith("key:")) await rpc({ cmd: "key", key: v.slice(4) });
+  });
+});
+
+/* ---------------- tabs ---------------- */
+function switchTab(name) {
+  document.querySelectorAll(".tabpane").forEach((p) => p.classList.toggle("on", p.id === "tab-" + name));
+  document.querySelectorAll("nav.tabs button").forEach((b) =>
+    b.classList.toggle("on", b.dataset.tab === name));
+  if (name === "node" && !$("#tree").childElementCount) loadTree();
+  if (name === "node" && !$("#selAdRule").childElementCount) loadAdRules();
+  // Device state and permissions are what this tab exists to show, so fetch them on
+  // entry rather than making the user press a button to see the thing they came for.
+  if (name === "device") { loadDevice(); loadPerms(); }
+}
+document.querySelectorAll("nav.tabs button").forEach((b) => {
+  b.addEventListener("click", () => switchTab(b.dataset.tab));
+});
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"]/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+}
+
+/* ---------------- boot ---------------- */
+(async () => {
+  const saved = localStorage.getItem("phone_agent_token");
+  if (saved) $("#inpToken").value = saved;
+  $("#inpToken").addEventListener("input", (e) => {
+    localStorage.setItem("phone_agent_token", e.target.value.trim());
+  });
+  await refresh();
+})();
+</script>
+</body>
+</html>

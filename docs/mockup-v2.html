@@ -1,0 +1,246 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>DSH Phone Agent — 界面设计稿</title>
+<style>
+  :root {
+    --bg: #eef1f6;
+    --card: #ffffff;
+    --ink: #0f172a;
+    --muted: #667085;
+    --ok: #0ea36b;
+    --ok-soft: #e7f7f0;
+    --warn: #e5484d;
+    --warn-soft: #fdecec;
+    --brand: #2563eb;
+    --brand-soft: #eaf0ff;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    width: 1080px; height: 2280px;
+    background: #eef1f6;
+    font-family: "Microsoft YaHei UI", "PingFang SC", system-ui, sans-serif;
+    color: var(--ink);
+    padding: 68px 56px 48px;
+    display: flex; flex-direction: column; gap: 34px;
+  }
+
+  /* ---------- header ---------- */
+  .hero { display: flex; align-items: center; gap: 26px; }
+  .logo {
+    width: 100px; height: 100px; border-radius: 28px;
+    background: linear-gradient(145deg, #3b82f6, #0ea36b);
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 12px 26px rgba(37,99,235,.30);
+    position: relative;
+  }
+  .logo::before {
+    content: ""; width: 40px; height: 62px; border: 5px solid #fff;
+    border-radius: 11px;
+  }
+  .logo::after {
+    content: ""; position: absolute; bottom: 22px;
+    width: 14px; height: 5px; background: #fff; border-radius: 3px;
+  }
+  .hero h1 { font-size: 50px; font-weight: 700; letter-spacing: -.5px; }
+  .hero p { font-size: 25px; color: var(--muted); margin-top: 9px; }
+
+  /* ---------- cards ---------- */
+  .card {
+    background: var(--card); border-radius: 32px;
+    box-shadow: 0 4px 20px rgba(16,24,40,.06);
+    border: 1px solid rgba(16,24,40,.04);
+  }
+  .section-title {
+    font-size: 26px; font-weight: 700; color: var(--muted);
+    letter-spacing: 1.5px; margin-bottom: -8px;
+  }
+
+  /* primary status */
+  .primary { padding: 42px 42px 44px; }
+  .row { display: flex; align-items: center; justify-content: space-between; }
+  .pill {
+    display: inline-flex; align-items: center; gap: 14px;
+    background: var(--ok-soft); color: var(--ok);
+    font-size: 27px; font-weight: 700;
+    padding: 15px 28px; border-radius: 999px;
+  }
+  .dot { width: 17px; height: 17px; border-radius: 50%; background: var(--ok); }
+  .pulse { animation: p 2s infinite; }
+  @keyframes p {
+    0%   { box-shadow: 0 0 0 0 rgba(14,163,107,.5); }
+    70%  { box-shadow: 0 0 0 20px rgba(14,163,107,0); }
+    100% { box-shadow: 0 0 0 0 rgba(14,163,107,0); }
+  }
+  .label { font-size: 25px; color: var(--muted); font-weight: 600; }
+
+  .endpoint {
+    margin-top: 32px; padding: 32px 34px;
+    background: #0f172a; border-radius: 24px;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .endpoint .addr {
+    font-family: "Cascadia Mono", Consolas, monospace;
+    font-size: 44px; font-weight: 700; color: #f8fafc; letter-spacing: 1px;
+  }
+  .endpoint .hint { font-size: 21px; color: #94a3b8; margin-top: 11px; }
+  .copy {
+    background: rgba(255,255,255,.13); color: #e2e8f0;
+    font-size: 25px; padding: 17px 28px; border-radius: 17px; border: none;
+  }
+
+  /* capability grid */
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; }
+  .cap { padding: 34px 32px; display: flex; flex-direction: column; gap: 18px; }
+  .cap .top { display: flex; align-items: center; gap: 18px; }
+  .icon {
+    width: 66px; height: 66px; border-radius: 20px; position: relative;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .icon.ok { background: var(--ok-soft); }
+  /* accessibility glyph: a stylised figure */
+  .icon.a11y::before {
+    content: ""; width: 26px; height: 26px; border-radius: 50%; background: var(--ok);
+  }
+  .icon.a11y::after {
+    content: ""; position: absolute; bottom: 15px; width: 32px; height: 16px;
+    border: 4px solid var(--ok); border-top: none; border-radius: 0 0 16px 16px;
+  }
+  /* server glyph: stacked bars */
+  .icon.srv::before {
+    content: ""; width: 32px; height: 5px; border-radius: 3px; background: var(--ok);
+    box-shadow: 0 11px 0 var(--ok), 0 -11px 0 var(--ok);
+  }
+  .icon.off { background: var(--warn-soft); }
+  .icon.off::before { background: var(--warn); }
+
+  .cap h3 { font-size: 30px; font-weight: 700; }
+  .cap .state { font-size: 25px; font-weight: 700; margin-top: 3px; }
+  .state.ok { color: var(--ok); }
+  .state.off { color: var(--warn); }
+  .cap .desc { font-size: 22px; color: var(--muted); line-height: 1.5; min-height: 66px; }
+
+  .btn {
+    border-radius: 19px; font-size: 26px; font-weight: 700;
+    padding: 22px 0; text-align: center; border: none; width: 100%;
+  }
+  .btn.primary { background: var(--brand); color: #fff; }
+  .btn.ghost { background: var(--brand-soft); color: var(--brand); }
+  .btn.danger { background: var(--warn-soft); color: var(--warn); }
+
+  /* stats */
+  .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 28px; }
+  .stat { padding: 30px 30px 28px; }
+  .stat .n { font-size: 48px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .stat .k { font-size: 23px; color: var(--muted); margin-top: 6px; }
+
+  /* activity log */
+  .log { padding: 14px 38px; }
+  .entry {
+    display: flex; align-items: center; gap: 22px;
+    padding: 26px 0; border-bottom: 1px solid var(--line, #eef0f4);
+  }
+  .entry:last-child { border-bottom: none; }
+  .badge {
+    flex: 0 0 auto; width: 58px; height: 58px; border-radius: 17px;
+    background: var(--brand-soft); color: var(--brand);
+    font-size: 24px; font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .entry .what { font-size: 26px; font-weight: 600; }
+  .entry .when { font-size: 22px; color: var(--muted); margin-top: 5px; }
+  .entry .right { margin-left: auto; font-size: 23px; color: var(--muted); }
+
+  .foot { margin-top: auto; text-align: center; font-size: 22px; color: #98a2b3; }
+</style>
+</head>
+<body>
+
+  <div class="hero">
+    <div class="logo"></div>
+    <div>
+      <h1>DSH Phone Agent</h1>
+      <p>手机端无障碍控制服务</p>
+    </div>
+  </div>
+
+  <div class="card primary">
+    <div class="row">
+      <div class="pill"><span class="dot pulse"></span>服务运行中</div>
+      <div class="label">已连接 1 台电脑</div>
+    </div>
+    <div class="endpoint">
+      <div>
+        <div class="addr">192.168.12.138:7912</div>
+        <div class="hint">在同一 Wi-Fi 的电脑上连接此地址</div>
+      </div>
+      <button class="copy">复制</button>
+    </div>
+  </div>
+
+  <div class="section-title">权限状态</div>
+  <div class="grid">
+    <div class="card cap">
+      <div class="top">
+        <div class="icon ok a11y"></div>
+        <div>
+          <h3>无障碍</h3>
+          <div class="state ok">已连接</div>
+        </div>
+      </div>
+      <div class="desc">读取界面节点、截图并注入手势</div>
+      <button class="btn ghost">打开设置</button>
+    </div>
+    <div class="card cap">
+      <div class="top">
+        <div class="icon ok srv"></div>
+        <div>
+          <h3>控制服务</h3>
+          <div class="state ok">监听中</div>
+        </div>
+      </div>
+      <div class="desc">前台服务保活,端口 7912</div>
+      <button class="btn danger">停止服务</button>
+    </div>
+  </div>
+
+  <div class="section-title">运行统计</div>
+  <div class="stats">
+    <div class="card stat"><div class="n">18</div><div class="k">累计操作</div></div>
+    <div class="card stat"><div class="n">1</div><div class="k">当前连接</div></div>
+    <div class="card stat"><div class="n">42m</div><div class="k">运行时长</div></div>
+  </div>
+
+  <div class="section-title">最近活动</div>
+  <div class="card log">
+    <div class="entry">
+      <div class="badge">观</div>
+      <div>
+        <div class="what">截图 + 界面树</div>
+        <div class="when">21:41:07</div>
+      </div>
+      <div class="right">108 KB</div>
+    </div>
+    <div class="entry">
+      <div class="badge">滑</div>
+      <div>
+        <div class="what">拟人滑动 (540,1700) → (540,900)</div>
+        <div class="when">21:40:52</div>
+      </div>
+      <div class="right">380 ms</div>
+    </div>
+    <div class="entry">
+      <div class="badge">找</div>
+      <div>
+        <div class="what">按文本查找「登录」</div>
+        <div class="when">21:40:41</div>
+      </div>
+      <div class="right">命中 1</div>
+    </div>
+  </div>
+
+  <div class="foot">v0.2.0 · 局域网直连 · 不依赖 adb</div>
+
+</body>
+</html>

@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Adaptive-icon background.
+
+    A 315° gradient runs from the top-left to the bottom-right, matching the
+    in-app logo so the launcher icon and the status screen read as the same
+    product. The foreground PNG carries the DSH / Agent lettering.
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <gradient
+        android:angle="315"
+        android:endColor="#0EA36B"
+        android:startColor="#3B82F6"
+        android:type="linear" />
+</shape>

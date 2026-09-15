@@ -1,0 +1,245 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>DSH Phone Agent — 功能帮助</title>
+<style>
+  :root {
+    --bg:#eef1f6; --card:#fff; --ink:#0f172a; --muted:#667085; --line:#e4e7ec;
+    --brand:#2563eb; --brand-soft:#eaf0ff; --code:#0f172a; --code-ink:#f8fafc;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{display:flex;height:100vh;background:var(--bg);color:var(--ink);
+       font-family:"Microsoft YaHei UI","PingFang SC",system-ui,sans-serif;
+       font-size:14px;line-height:1.6;overflow:hidden}
+  nav{width:330px;flex:0 0 330px;background:var(--card);border-right:1px solid var(--line);
+      overflow-y:auto;padding:18px 12px 40px}
+  .brand{padding:4px 12px 14px;border-bottom:1px solid var(--line);margin-bottom:10px}
+  .brand h1{font-size:17px;font-weight:700}
+  .brand p{font-size:12px;color:var(--muted);margin-top:3px}
+  .search{width:100%;padding:9px 12px;border:1px solid var(--line);border-radius:10px;
+          font-size:12.5px;font-family:inherit;outline:none;background:var(--bg);
+          margin-bottom:10px}
+  .search:focus{border-color:var(--brand);background:#fff;
+                box-shadow:0 0 0 3px var(--brand-soft)}
+  .nav-group{margin-bottom:14px}
+  .nav-group.hidden{display:none}
+  .nav-title{font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.08em;
+             padding:8px 12px 5px}
+  .nav-item{display:block;padding:7px 12px;border-radius:9px;text-decoration:none;
+            color:var(--ink);cursor:pointer}
+  .nav-item:hover{background:var(--bg)}
+  .nav-item.active{background:var(--brand-soft)}
+  .nav-item.hidden{display:none}
+  .nav-name{font-size:13px;font-weight:600;font-family:Consolas,monospace}
+  .nav-sum{display:block;font-size:11px;color:var(--muted);margin-top:1px}
+  .empty{font-size:12.5px;color:var(--muted);padding:14px 12px}
+  main{flex:1;overflow-y:auto;padding:28px 44px 80px}
+  .toolbar{display:flex;align-items:center;gap:12px;margin-bottom:20px}
+  .toolbar button{padding:7px 15px;border:1px solid var(--line);background:var(--card);
+                  border-radius:9px;font-size:12.5px;font-family:inherit;cursor:pointer}
+  .toolbar button:hover{border-color:var(--brand);color:var(--brand)}
+  .toolbar .picked{font-size:12.5px;color:var(--muted)}
+  .entry.hidden{display:none}
+  .cat.hidden{display:none}
+  .cat{font-size:20px;margin:36px 0 14px;padding-bottom:8px;border-bottom:2px solid var(--line)}
+  .cat:first-child{margin-top:0}
+  .cat .blurb{display:block;font-size:12px;font-weight:400;color:var(--muted);margin-top:4px}
+  .entry{background:var(--card);border-radius:14px;padding:20px 22px;margin-bottom:14px;
+         border:1px solid rgba(16,24,40,.05);box-shadow:0 2px 10px rgba(16,24,40,.04)}
+  .entry:target{border-color:var(--brand);box-shadow:0 0 0 3px var(--brand-soft)}
+  .entry h2{font-size:16px;font-family:Consolas,monospace;display:flex;
+            align-items:baseline;gap:12px;flex-wrap:wrap}
+  .entry h2 .sum{font-size:12px;font-weight:400;color:var(--muted);
+                 font-family:inherit}
+  .detail{margin-top:10px;color:#344054;font-size:13px}
+  .sub{font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.06em;
+       margin:16px 0 7px}
+  pre{background:var(--code);color:var(--code-ink);border-radius:10px;padding:14px 16px;
+      font-family:Consolas,monospace;font-size:12px;line-height:1.55;overflow-x:auto}
+  table.params{width:100%;border-collapse:collapse;font-size:12.5px}
+  table.params td{padding:5px 0;vertical-align:top}
+  td.pk{width:210px;color:var(--brand);font-family:Consolas,monospace;font-weight:600;
+        padding-right:14px}
+  .hint{font-size:11.5px;color:var(--muted);padding:10px 12px;background:var(--brand-soft);
+        border-radius:9px;margin-bottom:18px}
+</style>
+</head>
+<body>
+<nav>
+  <div class="brand">
+    <h1>DSH Phone Agent</h1>
+    <p>45 项能力 · 本页由 HelpContent.kt 自动生成</p>
+  </div>
+  <input id="q" class="search" type="search" placeholder="搜索功能、参数或说明…" autocomplete="off">
+  <div class="nav-group" data-group="如何调用"><div class="nav-title">如何调用</div><a class="nav-item" href="#如何调用-方式一-dsh-插件" data-key="如何调用-方式一-dsh-插件"><span class="nav-name">方式一:DSH 插件</span><span class="nav-sum">让大模型直接调用(推荐)</span></a>
+<a class="nav-item" href="#如何调用-方式二-原始-tcp" data-key="如何调用-方式二-原始-tcp"><span class="nav-name">方式二:原始 TCP</span><span class="nav-sum">一行一个 JSON,任何语言都能接</span></a>
+<a class="nav-item" href="#如何调用-方式三-python-客户端" data-key="如何调用-方式三-python-客户端"><span class="nav-name">方式三:Python 客户端</span><span class="nav-sum">现成的参考实现</span></a>
+<a class="nav-item" href="#如何调用-频率与限流" data-key="如何调用-频率与限流"><span class="nav-name">频率与限流</span><span class="nav-sum">高频发送会怎样,以及正确的写法</span></a>
+<a class="nav-item" href="#如何调用-错误码" data-key="如何调用-错误码"><span class="nav-name">错误码</span><span class="nav-sum">区分该重试还是该改参数</span></a></div>
+<div class="nav-group" data-group="连接与状态"><div class="nav-title">连接与状态</div><a class="nav-item" href="#连接与状态-ping" data-key="连接与状态-ping"><span class="nav-name">ping</span><span class="nav-sum">连通性与无障碍状态</span></a>
+<a class="nav-item" href="#连接与状态-info" data-key="连接与状态-info"><span class="nav-name">info</span><span class="nav-sum">设备与屏幕基本信息</span></a>
+<a class="nav-item" href="#连接与状态-device" data-key="连接与状态-device"><span class="nav-name">device</span><span class="nav-sum">完整设备状态</span></a>
+<a class="nav-item" href="#连接与状态-wake" data-key="连接与状态-wake"><span class="nav-name">wake</span><span class="nav-sum">唤醒屏幕</span></a></div>
+<div class="nav-group" data-group="看屏幕"><div class="nav-title">看屏幕</div><a class="nav-item" href="#看屏幕-uitree" data-key="看屏幕-uitree"><span class="nav-name">uitree</span><span class="nav-sum">界面节点树</span></a>
+<a class="nav-item" href="#看屏幕-observe" data-key="看屏幕-observe"><span class="nav-name">observe</span><span class="nav-sum">截图 + 界面树(一次往返)</span></a>
+<a class="nav-item" href="#看屏幕-screenshot" data-key="看屏幕-screenshot"><span class="nav-name">screenshot</span><span class="nav-sum">仅截图</span></a>
+<a class="nav-item" href="#看屏幕-find" data-key="看屏幕-find"><span class="nav-name">find</span><span class="nav-sum">控件选择器</span></a>
+<a class="nav-item" href="#看屏幕-findtext" data-key="看屏幕-findtext"><span class="nav-name">findtext</span><span class="nav-sum">按文本找控件 ⭐</span></a>
+<a class="nav-item" href="#看屏幕-ocr" data-key="看屏幕-ocr"><span class="nav-name">ocr</span><span class="nav-sum">本地文字识别</span></a>
+<a class="nav-item" href="#看屏幕-colorat" data-key="看屏幕-colorat"><span class="nav-name">colorat</span><span class="nav-sum">单点取色</span></a>
+<a class="nav-item" href="#看屏幕-findmulti" data-key="看屏幕-findmulti"><span class="nav-name">findmulti</span><span class="nav-sum">多点找色(锚点+偏移)</span></a>
+<a class="nav-item" href="#看屏幕-findcolor" data-key="看屏幕-findcolor"><span class="nav-name">findcolor</span><span class="nav-sum">单点找色(按簇返回)</span></a>
+<a class="nav-item" href="#看屏幕-findimage" data-key="看屏幕-findimage"><span class="nav-name">findimage</span><span class="nav-sum">找图(模板匹配)</span></a>
+<a class="nav-item" href="#看屏幕-waitstable" data-key="看屏幕-waitstable"><span class="nav-name">waitstable</span><span class="nav-sum">等待界面稳定</span></a></div>
+<div class="nav-group" data-group="操作屏幕"><div class="nav-title">操作屏幕</div><a class="nav-item" href="#操作屏幕-tap" data-key="操作屏幕-tap"><span class="nav-name">tap</span><span class="nav-sum">点击(拟人)</span></a>
+<a class="nav-item" href="#操作屏幕-doubletap" data-key="操作屏幕-doubletap"><span class="nav-name">doubletap</span><span class="nav-sum">双击(拟人)</span></a>
+<a class="nav-item" href="#操作屏幕-longpress" data-key="操作屏幕-longpress"><span class="nav-name">longpress</span><span class="nav-sum">长按(拟人)</span></a>
+<a class="nav-item" href="#操作屏幕-swipe" data-key="操作屏幕-swipe"><span class="nav-name">swipe</span><span class="nav-sum">滑动(到达后停留再抬手)</span></a>
+<a class="nav-item" href="#操作屏幕-swipemeasure" data-key="操作屏幕-swipemeasure"><span class="nav-name">swipemeasure</span><span class="nav-sum">滑动并测量真实位移</span></a>
+<a class="nav-item" href="#操作屏幕-flick" data-key="操作屏幕-flick"><span class="nav-name">flick</span><span class="nav-sum">惯性甩动</span></a>
+<a class="nav-item" href="#操作屏幕-pinch" data-key="操作屏幕-pinch"><span class="nav-name">pinch</span><span class="nav-sum">双指缩放</span></a>
+<a class="nav-item" href="#操作屏幕-scroll" data-key="操作屏幕-scroll"><span class="nav-name">scroll</span><span class="nav-sum">按容器滚动一屏</span></a>
+<a class="nav-item" href="#操作屏幕-key" data-key="操作屏幕-key"><span class="nav-name">key</span><span class="nav-sum">系统按键(8 个)</span></a></div>
+<div class="nav-group" data-group="输入文字"><div class="nav-title">输入文字</div><a class="nav-item" href="#输入文字-text" data-key="输入文字-text"><span class="nav-name">text</span><span class="nav-sum">向焦点输入框写文本</span></a>
+<a class="nav-item" href="#输入文字-send" data-key="输入文字-send"><span class="nav-name">send</span><span class="nav-sum">提交输入(发送 / 搜索 / 完成)</span></a>
+<a class="nav-item" href="#输入文字-delete" data-key="输入文字-delete"><span class="nav-name">delete</span><span class="nav-sum">回删(退格)</span></a>
+<a class="nav-item" href="#输入文字-clear" data-key="输入文字-clear"><span class="nav-name">clear</span><span class="nav-sum">清空输入框</span></a>
+<a class="nav-item" href="#输入文字-clipboard" data-key="输入文字-clipboard"><span class="nav-name">clipboard</span><span class="nav-sum">剪贴板读 / 写 / 粘贴</span></a></div>
+<div class="nav-group" data-group="应用与系统"><div class="nav-title">应用与系统</div><a class="nav-item" href="#应用与系统-launch" data-key="应用与系统-launch"><span class="nav-name">launch</span><span class="nav-sum">启动应用</span></a>
+<a class="nav-item" href="#应用与系统-deeplink" data-key="应用与系统-deeplink"><span class="nav-name">deeplink</span><span class="nav-sum">打开 URI(直达页面)</span></a>
+<a class="nav-item" href="#应用与系统-apps" data-key="应用与系统-apps"><span class="nav-name">apps</span><span class="nav-sum">已安装应用列表</span></a>
+<a class="nav-item" href="#应用与系统-stopapp" data-key="应用与系统-stopapp"><span class="nav-name">stopapp</span><span class="nav-sum">结束后台应用</span></a>
+<a class="nav-item" href="#应用与系统-volume" data-key="应用与系统-volume"><span class="nav-name">volume</span><span class="nav-sum">调节音量</span></a>
+<a class="nav-item" href="#应用与系统-brightness" data-key="应用与系统-brightness"><span class="nav-name">brightness</span><span class="nav-sum">调节亮度</span></a></div>
+<div class="nav-group" data-group="概念与约定"><div class="nav-title">概念与约定</div><a class="nav-item" href="#概念与约定-坐标约定" data-key="概念与约定-坐标约定"><span class="nav-name">坐标约定</span><span class="nav-sum">一切坐标都是全屏截图像素</span></a>
+<a class="nav-item" href="#概念与约定-两个独立的授权" data-key="概念与约定-两个独立的授权"><span class="nav-name">两个独立的授权</span><span class="nav-sum">常驻通知 ≠ 无障碍</span></a>
+<a class="nav-item" href="#概念与约定-分层选择策略" data-key="概念与约定-分层选择策略"><span class="nav-name">分层选择策略</span><span class="nav-sum">按成本递进,别一上来就烧算力</span></a>
+<a class="nav-item" href="#概念与约定-安全边界" data-key="概念与约定-安全边界"><span class="nav-name">安全边界</span><span class="nav-sum">免 root 的固有天花板</span></a>
+<a class="nav-item" href="#概念与约定-访问令牌" data-key="概念与约定-访问令牌"><span class="nav-name">访问令牌</span><span class="nav-sum">可选的端口认证</span></a></div>
+  <div id="noHit" class="empty" style="display:none">没有匹配的功能</div>
+</nav>
+<main>
+  <div class="toolbar">
+    <button id="showAll">显示全部</button>
+    <span id="picked" class="picked">正在显示:全部 45 项</span>
+  </div>
+  <h1 class="cat" id="如何调用">如何调用<span class="blurb">三种接入方式,任选一种</span></h1><section class="entry" id="如何调用-方式一-dsh-插件" data-key="如何调用-方式一-dsh-插件"><h2>方式一:DSH 插件<span class="sum">让大模型直接调用(推荐)</span></h2><div class="detail">插件装在 DSH 的 web profile 里,工具名 **phone_lan**。模型自己会挑 action,你只需要用自然语言描述目标。<br><br>地址在插件包自己的 cordis.patch.yml 里配置(host / port / toolName),改完要重启 DSH——新增或改配置都不会热加载。</div></section>
+<section class="entry" id="如何调用-方式二-原始-tcp" data-key="如何调用-方式二-原始-tcp"><h2>方式二:原始 TCP<span class="sum">一行一个 JSON,任何语言都能接</span></h2><div class="detail">不依赖任何 SDK。协议就是 **一行一个 JSON**,UTF-8,`\<br>` 分隔,默认端口 **7912**。<br><br>响应也是一行:成功是 `{"ok":true,"data":{...}}`,失败是 `{"ok":false,"error":"...","code":"..."}`。单条失败**不会断开连接**,可以继续发。</div></section>
+<section class="entry" id="如何调用-方式三-python-客户端" data-key="如何调用-方式三-python-客户端"><h2>方式三:Python 客户端<span class="sum">现成的参考实现</span></h2><div class="detail">`pc/pyclient/phone_client.py`,约 200 行,直接读它就能理解协议。不需要的话可以在脚本里更简单地自己写一个。</div></section>
+<section class="entry" id="如何调用-频率与限流" data-key="如何调用-频率与限流"><h2>频率与限流<span class="sum">高频发送会怎样,以及正确的写法</span></h2><div class="detail">服务端**串行执行**所有操作:同一时刻只处理一个,后到的排队。<br><br>所以**不要不等响应就连续发**。一次 tap 要「手势 + 截图」约 300–800ms,连发 100 个的话,第 100 个要等近一分钟才回,看起来就是卡死。<br><br>App 侧做了两道保护:<br><br>1. **点击节流**——两次点击之间强制最小间隔,默认 110ms(大致是人手最快连点速度)。可用 `minIntervalMs` 调整,设 0 关闭。<br>2. **并发上限**——同时有 4 个操作在跑时,新请求直接返回 `busy` 错误而不是排队。<br><br>**滑动和长按不受节流约束**:它们本身就是长动作,强行间隔没有物理依据。<br><br>正确写法是**串行等待**:发一个 → 等响应 → 再发下一个。</div></section>
+<section class="entry" id="如何调用-错误码" data-key="如何调用-错误码"><h2>错误码<span class="sum">区分该重试还是该改参数</span></h2><div class="detail">失败响应的 `code` 字段告诉你该怎么办:<br><br>• `bad_request` — 参数不合法 → **不要重试**,改参数<br>• `not_ready` — 界面或服务尚未就绪 → 稍等再试<br>• `timeout` — 超时 → 可重试一次<br>• `busy` — 操作积压 → 等一会儿再发<br>• `unauthorized` — 令牌不匹配 → 检查 token<br>• `io` — 读写失败 → 重连<br><br>**`bad_request` 重复发送必然重复失败**,这是最容易浪费请求的一种。</div></section>
+<h1 class="cat" id="连接与状态">连接与状态<span class="blurb">确认链路是否正常,以及手机当前是什么状态</span></h1><section class="entry" id="连接与状态-ping" data-key="连接与状态-ping"><h2>ping<span class="sum">连通性与无障碍状态</span></h2><div class="detail">最轻的一次往返。用来区分「连不上」「连上了但无障碍没开」「一切正常」三种情况。accessibility 为 false 时,除 ping / info / device 外的命令都会失败。</div></section>
+<section class="entry" id="连接与状态-info" data-key="连接与状态-info"><h2>info<span class="sum">设备与屏幕基本信息</span></h2><div class="detail">型号、系统版本、屏幕尺寸、旋转角、亮灭屏、锁屏状态、前台包名。screenWidth/Height 是「全屏」尺寸(含导航栏),与截图坐标系一致。</div></section>
+<section class="entry" id="连接与状态-device" data-key="连接与状态-device"><h2>device<span class="sum">完整设备状态</span></h2><div class="detail">一次拿全:身份、屏幕、电量(百分比/充电/温度/健康度)、亮灭屏、锁屏、音量(5 种流)、亮度、网络、存储、内存,以及本服务自身的运行状态。不需要无障碍权限,所以服务没绑定时也能用它排查。取不到的值返回 null 或 -1,不会编造一个看起来合理的数。</div></section>
+<section class="entry" id="连接与状态-wake" data-key="连接与状态-wake"><h2>wake<span class="sum">唤醒屏幕</span></h2><div class="detail">只点亮屏幕,不解锁,也不尝试解锁。**息屏时派发的手势会被系统静默丢弃**——不报错也不回调,是最难排查的一类失败,所以操作前先 wake。返回里带 locked,锁屏状态下手势同样到不了应用。</div></section>
+<h1 class="cat" id="看屏幕">看屏幕<span class="blurb">按成本从低到高排列,能用低成本的就不用高成本的</span></h1><section class="entry" id="看屏幕-uitree" data-key="看屏幕-uitree"><h2>uitree<span class="sum">界面节点树</span></h2><div class="detail">无障碍节点树。interactiveOnly 为 true 时只回可操作节点,并且是扁平列表而非层级——列表类页面能缩到 1/10,而且调用方想知道的多半就是「这屏能点哪些」。</div><div class="sub">参数</div><table class="params"><tr><td class="pk">maxDepth</td><td>最大深度,默认 30</td></tr><tr><td class="pk">maxNodes</td><td>最大节点数,默认 2000</td></tr><tr><td class="pk">interactiveOnly</td><td>只回可操作节点,默认 false</td></tr></table></section>
+<section class="entry" id="看屏幕-observe" data-key="看屏幕-observe"><h2>observe<span class="sum">截图 + 界面树(一次往返)</span></h2><div class="detail">最常用的一条。一次往返同时拿到画面和节点树,避免截图与树不同步。支持缩放和区域裁剪,响应里会给出全屏尺寸与缩放系数。</div><div class="sub">参数</div><table class="params"><tr><td class="pk">includeUi</td><td>是否附带界面树,默认 true</td></tr><tr><td class="pk">scale</td><td>0.05–1,缩小截图。边长减半省约 4 倍带宽</td></tr><tr><td class="pk">region</td><td>[left,top,right,bottom],限定范围</td></tr><tr><td class="pk">interactiveOnly</td><td>界面树只回可操作节点</td></tr><tr><td class="pk">quality</td><td>JPEG 质量 1–100,默认 82</td></tr></table></section>
+<section class="entry" id="看屏幕-screenshot" data-key="看屏幕-screenshot"><h2>screenshot<span class="sum">仅截图</span></h2><div class="detail">只取画面,不取节点树。同样支持 scale 与 region。</div></section>
+<section class="entry" id="看屏幕-find" data-key="看屏幕-find"><h2>find<span class="sum">控件选择器</span></h2><div class="detail">按条件在节点树里筛选,**只返回命中项**。这是省 token 的关键:聊天列表或 WebView 动辄几千节点,全量传给模型又贵又慢,而手机本地筛完只要几毫秒。返回的 center 可直接用于 tap。</div><div class="sub">参数</div><table class="params"><tr><td class="pk">text</td><td>文本完全相等</td></tr><tr><td class="pk">textContains</td><td>文本包含</td></tr><tr><td class="pk">textRegex</td><td>文本正则(Java 语法)</td></tr><tr><td class="pk">desc / descContains</td><td>contentDescription</td></tr><tr><td class="pk">viewId</td><td>资源 ID,**按后缀匹配**(传 btn_login 即可)</td></tr><tr><td class="pk">viewIdContains</td><td>资源 ID 包含</td></tr><tr><td class="pk">cls</td><td>类名短名,如 TextView、Button</td></tr><tr><td class="pk">clickable 等</td><td>clickable/longClickable/scrollable/editable/enabled/checked/selected/focused</td></tr><tr><td class="pk">depthMin / depthMax</td><td>深度范围</td></tr></table></section>
+<section class="entry" id="看屏幕-findtext" data-key="看屏幕-findtext"><h2>findtext<span class="sum">按文本找控件 ⭐</span></h2><div class="detail">融合节点树与 OCR,并把命中点解析成**真正可点击的控件**。<br><br>关键坑:显示文字的节点和能点击的节点**通常不是同一个**。文字常在一个不可点击的 TextView 里,真正响应点击的是它的父 LinearLayout。findtext 会对命中点做命中测试,返回这一点之下「最深且最小」的可点击节点。<br><br>**点 tapTarget.center,不要点文字自己的 center。**</div><div class="sub">参数</div><table class="params"><tr><td class="pk">text</td><td>要查找的文本</td></tr><tr><td class="pk">mode</td><td>contains(默认)/ exact / regex</td></tr><tr><td class="pk">source</td><td>auto(默认,先树后 OCR)/ node / ocr</td></tr><tr><td class="pk">tappable</td><td>是否解析可点击目标,默认 true</td></tr></table></section>
+<section class="entry" id="看屏幕-ocr" data-key="看屏幕-ocr"><h2>ocr<span class="sum">本地文字识别</span></h2><div class="detail">在手机本地跑 OCR(ML Kit bundled 版,模型在 APK 内,**不需要 Google Play 服务**,国行无 GMS 也能用)。<br><br>用于节点树看不到内容的场景:WebView/H5、游戏、Canvas、自绘控件、图片里的文字。**原生控件场景优先用 find**,快几百倍且带 viewId。<br><br>返回按 block → line → element 三级组织。</div></section>
+<section class="entry" id="看屏幕-colorat" data-key="看屏幕-colorat"><h2>colorat<span class="sum">单点取色</span></h2><div class="detail">取屏幕上某一个像素的颜色。findcolor 的廉价版:取一个点只要一次截图加一次数组索引,而 findcolor 要扫全屏。**适合轮询状态指示灯,不适合定位目标。**</div></section>
+<section class="entry" id="看屏幕-findmulti" data-key="看屏幕-findmulti"><h2>findmulti<span class="sum">多点找色(锚点+偏移)</span></h2><div class="detail">**单个颜色在真实屏幕上几乎没有辨识度** —— 任何一个色调都有成千上万像素命中,所以单点找色只能告诉你"这个颜色在哪",不能告诉你"那个东西在哪"。<br><br>多点找色用**一个锚点色 + 若干固定偏移点**来描述目标:必须**锚点命中,且每个偏移点也各自命中自己的颜色**,才算一处匹配。这样才能在几百个图标里锁定特定那一个。<br><br>`points` 是 `[dx, dy, 颜色]` 的数组,坐标**相对锚点**。<br><br>**采样要点**:<br>• 锚点选**稀有、稳定**的像素(纯色背景块最差,满屏都是)<br>• 偏移点选**纹理丰富**的位置 —— 边缘、文字、图标细节<br>• 偏移量**越大越精确**,但也越不耐缩放<br>• 3–6 个偏移点通常就够,超过 48 会被拒<br><br>响应里的 `anchorsTried` 能帮你判断锚点选得好不好:**这个数越大,说明锚点色越普通**,匹配会越慢。</div><div class="sub">参数</div><table class="params"><tr><td class="pk">anchor</td><td>锚点颜色 #RRGGBB</td></tr><tr><td class="pk">points</td><td>[[dx,dy,"#RRGGBB"], ...] 相对锚点的偏移</td></tr><tr><td class="pk">tolerance</td><td>每个通道的容差 0–255,默认 16</td></tr><tr><td class="pk">region</td><td>限定搜索范围</td></tr><tr><td class="pk">max</td><td>最多返回几处,默认 20</td></tr></table></section>
+<section class="entry" id="看屏幕-findcolor" data-key="看屏幕-findcolor"><h2>findcolor<span class="sum">单点找色(按簇返回)</span></h2><div class="detail">按颜色查找,返回**按像素数排序的聚类区域**,而不是一堆原始像素点。用于节点树看不到内容、但颜色稳定的目标:徽标、进度条、游戏元素。region 能显著提速。</div><div class="sub">参数</div><table class="params"><tr><td class="pk">color</td><td>#RRGGBB 或 #AARRGGBB</td></tr><tr><td class="pk">tolerance</td><td>每通道容差 0–255,默认 16</td></tr><tr><td class="pk">region</td><td>限定搜索范围</td></tr><tr><td class="pk">clusterSize</td><td>聚类网格边长,默认 24</td></tr></table></section>
+<section class="entry" id="看屏幕-findimage" data-key="看屏幕-findimage"><h2>findimage<span class="sum">找图(模板匹配)</span></h2><div class="detail">朴素全分辨率匹配是 O(宽×高×模板面积)——1080×2400 配 100×100 模板约 2.2×10¹⁰ 次比较,要几十秒。这里先把图和模板降到模板长边约 28px 做穷举粗筛,再对前几个候选在原分辨率上小范围精修,因此能在百毫秒级返回。<br><br>**缩小 region 是最有效的提速手段。**</div></section>
+<section class="entry" id="看屏幕-waitstable" data-key="看屏幕-waitstable"><h2>waitstable<span class="sum">等待界面稳定</span></h2><div class="detail">连续 N 帧界面指纹相同即认为稳定,比固定 sleep 可靠得多。**会如实报告是否真的稳定了**,所以调用方能区分「已就绪」和「到点了还在变」。</div></section>
+<h1 class="cat" id="操作屏幕">操作屏幕<span class="blurb">全部默认拟人——手指不可能每次都落在同一个像素上</span></h1><section class="entry" id="操作屏幕-tap" data-key="操作屏幕-tap"><h2>tap<span class="sum">点击(拟人)</span></h2><div class="detail">落点带高斯散点(σ≈5.5px)、亚像素级微滑、52–139ms 随机按压时长。<br><br>**这不是可选项**:human:false 只是留给 A/B 对照的开关,正常使用不应打开。</div><div class="sub">参数</div><table class="params"><tr><td class="pk">x / y</td><td>全屏截图像素坐标</td></tr><tr><td class="pk">retry</td><td>被取消时重试 1–5 次,默认 1</td></tr><tr><td class="pk">minIntervalMs</td><td>两次点击最小间隔,默认 110ms;设 0 关闭</td></tr><tr><td class="pk">human</td><td>默认 true。false 仅用于对照</td></tr></table></section>
+<section class="entry" id="操作屏幕-doubletap" data-key="操作屏幕-doubletap"><h2>doubletap<span class="sum">双击(拟人)</span></h2><div class="detail">两次接触的**间隔(88–209ms)和第二次落点都随机**。<br><br>实现细节:两次接触放在**同一条 GestureDescription 的两个 stroke** 里,而不是发两次请求——框架正是靠「同一输入序列内的两次接触」识别双击的,分两次往返反而不成立。</div></section>
+<section class="entry" id="操作屏幕-longpress" data-key="操作屏幕-longpress"><h2>longpress<span class="sum">长按(拟人)</span></h2><div class="detail">按住期间**分 3 段微动**——真人手指不会完全静止。原来的实现是一根静止的直线,特征明显。</div><div class="sub">参数</div><table class="params"><tr><td class="pk">holdMs</td><td>按住时长,300–5000ms,默认 650</td></tr><tr><td class="pk">retry</td><td>被取消时重试次数</td></tr></table></section>
+<section class="entry" id="操作屏幕-swipe" data-key="操作屏幕-swipe"><h2>swipe<span class="sum">滑动(到达后停留再抬手)</span></h2><div class="detail">二次贝塞尔弧线(控制点随机、朝随机侧弯曲约 ±2.2% 弦长)、沿法线叠加的生理性震颤(两端收敛为 0),速度剖面为**加速 → 匀速 → 减速 → 到达后停留约 200ms 再抬手**。<br><br>**为什么要有那个停留**:系统在手指离开后按**抬手瞬间的速度**决定要不要继续惯性滚动。末尾速度快就会"甩"出去、落点超出坐标;速度接近 0 才会正好停在目标。<br><br>只靠减速曲线做不到这件事:300ms 内既要走完 1000px、又要在最后100ms 爬行,数学上不可能。**停留 200ms 绕开了这道算术** —— 最后那段采样点几乎重合,速度必然是 0,无论滑得多快。<br><br>这也正是真人的做法:快速划过去,**停住**,再抬手。停留只有 200ms,不增加可见的耗时。<br><br>**实践建议**:<br>• 需要**落在指定位置** → 用 600–1200ms<br>• 需要**快速翻页** → 用 200–350ms,现在同样能刹住<br>• 要**读完整列表** → 用 `sweep`,它自己处理滚动</div><div class="sub">参数</div><table class="params"><tr><td class="pk">durationMs</td><td>60–4000,默认 320。末尾另有约 200ms 停留</td></tr><tr><td class="pk">human</td><td>默认 true。false 为机械直线,仅用于对照</td></tr><tr><td class="pk">trace</td><td>true 时返回 [x,y,timeMs] 采样点,用于画速度曲线</td></tr></table></section>
+<section class="entry" id="操作屏幕-swipemeasure" data-key="操作屏幕-swipemeasure"><h2>swipemeasure<span class="sum">滑动并测量真实位移</span></h2><div class="detail">滑动,**并告诉你内容实际滚了多远**。<br><br>`swipe` 返回 `completed:true` 只说明手势被系统接受了,**完全不代表内容滚动了相应的距离** —— 列表到边界就不再跟手、惯性会让它继续走、页面也可能根本不滚。想知道实情只能量。<br><br>做法是滑动前后各截一屏,用归一化互相关找垂直偏移。<br><br>**读法**:<br>• `fingerDistance` 手指走了多远<br>• `contentShift` 内容实际滚了多少(**-1 表示无法测量**,不是 0)<br>• `efficiency` = 位移 ÷ 手指距离。**大于 1 说明触发了惯性**<br>• `matchScore` 匹配相关系数,偏低说明两次截图没对齐(页面变了)</div><div class="sub">参数</div><table class="params"><tr><td class="pk">durationMs</td><td>滑动时长,同上</td></tr><tr><td class="pk">settleMs</td><td>滑动后等待多久再截图,默认 800。惯性大的要留足</td></tr></table></section>
+<section class="entry" id="操作屏幕-flick" data-key="操作屏幕-flick"><h2>flick<span class="sum">惯性甩动</span></h2><div class="detail">短而快的滑动,让内容带着惯性继续滚。<br><br>**和 swipe 是两种操作**:同样距离慢慢拖是拖拽(内容精确跟随手指),快速甩是抛出(内容继续滚一段),应用对两者的响应确实不同。</div></section>
+<section class="entry" id="操作屏幕-pinch" data-key="操作屏幕-pinch"><h2>pinch<span class="sum">双指缩放</span></h2><div class="detail">两根手指放在**同一条 GestureDescription** 里,所以是同时落下——框架正是靠这个区分「捏合」和「两次独立滑动」。<br><br>endSpread 大于 startSpread 是放大,反之缩小。地图、图片查看器、部分游戏没有替代方案。</div></section>
+<section class="entry" id="操作屏幕-scroll" data-key="操作屏幕-scroll"><h2>scroll<span class="sum">按容器滚动一屏</span></h2><div class="detail">找到第 index 个可滚动容器,对它下发 ACTION_SCROLL_FORWARD / BACKWARD。<br><br>比「盲滑屏幕」可靠:手势锚定在容器自身边界内,不会误触到浮动按钮或底部导航栏。响应会回传被滚动的容器信息。</div><div class="sub">参数</div><table class="params"><tr><td class="pk">direction</td><td>forward(默认)/ backward</td></tr><tr><td class="pk">index</td><td>第几个可滚动容器,默认 0</td></tr></table></section>
+<section class="entry" id="操作屏幕-key" data-key="操作屏幕-key"><h2>key<span class="sum">系统按键(8 个)</span></h2><div class="detail">全局系统动作。响应会回传中文名 label,便于日志和展示。<br><br>• `BACK` — 返回<br>• `HOME` — 回到桌面<br>• `RECENTS` / `APPSWITCH` — 最近任务<br>• `NOTIFICATIONS` — 下拉通知栏<br>• `QUICK_SETTINGS` — 快捷设置面板<br>• `POWER` — 电源菜单<br>• `LOCK` — 锁屏<br>• `SCREENSHOT` — 截屏<br><br>⚠️ 这里只有**全局动作**,没有 ENTER / 退格——无障碍服务注入不了按键事件。<br>需要提交输入用 `send`,需要回删用 `delete`。</div></section>
+<h1 class="cat" id="输入文字">输入文字<span class="blurb">不依赖输入法,也不需要剪贴板中转</span></h1><section class="entry" id="输入文字-text" data-key="输入文字-text"><h2>text<span class="sum">向焦点输入框写文本</span></h2><div class="detail">走 ACTION_SET_TEXT,所以**中文和 emoji 直接可用,不需要输入法,也不走剪贴板**——这正是 adb 方案要额外跑 scrcpy 才能做到的事。<br><br>typing:"natural" 会逐字符提交并插入随机间隔。**整段文字在一帧里出现本身就是个信号**,没有人类是那样打字的。代价是慢,只在输入框会观察输入时序时才值得。</div><div class="sub">参数</div><table class="params"><tr><td class="pk">text</td><td>要写入的文本</td></tr><tr><td class="pk">mode</td><td>replace(默认)/ append / clear</td></tr><tr><td class="pk">typing</td><td>instant(默认)/ natural</td></tr></table></section>
+<section class="entry" id="输入文字-send" data-key="输入文字-send"><h2>send<span class="sum">提交输入(发送 / 搜索 / 完成)</span></h2><div class="detail">让输入法执行它自己的编辑器动作:聊天框里是「发送」,搜索框里是「搜索」,表单里是「完成」——和你按键盘右下角那个键**是同一个动作**,所以应用对两者的处理完全一致。<br><br>⚠️ 这**不是**合成的 Enter 按键。无障碍服务根本无法注入按键事件(那需要 INJECT_EVENTS,只有 shell/系统权限才有),所以只能走输入法这条路。<br><br>字段若返回 sent:false,说明它没有声明编辑器动作,此时改用点击发送按钮。</div></section>
+<section class="entry" id="输入文字-delete" data-key="输入文字-delete"><h2>delete<span class="sum">回删(退格)</span></h2><div class="detail">从焦点输入框末尾删除 N 个字符,默认 1。<br><br>⚠️ **实现方式的诚实说明**:无障碍没有任何「发送退格键」的动作(同样要 INJECT_EVENTS)。这里的做法是读出当前文本、写回去掉末尾的内容。<br><br>**内容上完全等价**,区别在于它是一次原子写入——如果某个输入框会检查按键节奏,是能看出差别的。这是免 root 路线的硬限制,不是实现疏漏。</div><div class="sub">参数</div><table class="params"><tr><td class="pk">count</td><td>删除字符数,1–500,默认 1</td></tr></table></section>
+<section class="entry" id="输入文字-clear" data-key="输入文字-clear"><h2>clear<span class="sum">清空输入框</span></h2><div class="detail">把焦点输入框清空,返回清空前的内容长度。<br><br>比 text 的 mode:"clear" 更直观,单独成一个命令是因为「清空重填」是很常见的一步,值得少写一个参数。</div></section>
+<section class="entry" id="输入文字-clipboard" data-key="输入文字-clipboard"><h2>clipboard<span class="sum">剪贴板读 / 写 / 粘贴</span></h2><div class="detail">get 读取、set 写入、paste 注入到当前焦点输入框。<br><br>**paste 是救命路径**:某些输入框拒绝 ACTION_SET_TEXT(只认真实输入事件),此时只能先把文本写进剪贴板再粘贴。</div></section>
+<h1 class="cat" id="应用与系统">应用与系统<span class="blurb">启动、跳转、结束,以及音量亮度</span></h1><section class="entry" id="应用与系统-launch" data-key="应用与系统-launch"><h2>launch<span class="sum">启动应用</span></h2><div class="detail">按包名启动。需要先知道包名,可以用 apps 查。</div></section>
+<section class="entry" id="应用与系统-deeplink" data-key="应用与系统-deeplink"><h2>deeplink<span class="sum">打开 URI(直达页面)</span></h2><div class="detail">直达某个 App 的具体页面,省掉「启动 → 再点进去」的整段流程。也绕开了「应用打开后停在开屏页或更新提示,模型找不到入口」这类常见失败。</div></section>
+<section class="entry" id="应用与系统-apps" data-key="应用与系统-apps"><h2>apps<span class="sum">已安装应用列表</span></h2><div class="detail">返回有启动入口的应用(标签 + 包名),可按名称或包名过滤。默认不含系统预装应用。</div></section>
+<section class="entry" id="应用与系统-stopapp" data-key="应用与系统-stopapp"><h2>stopapp<span class="sum">结束后台应用</span></h2><div class="detail">用 killBackgroundProcesses,**这是无 root 情况下能拿到的最强手段**:<br><br>它只回收**已在后台**的进程,前台应用不受影响。返回里的 stillRunning 和 note 会如实说明这一点,而不是假装它是 force-stop——真正的前台强停需要 shell 权限。</div></section>
+<section class="entry" id="应用与系统-volume" data-key="应用与系统-volume"><h2>volume<span class="sum">调节音量</span></h2><div class="detail">走 AudioManager 而不是合成按键事件——**息屏时也能用**,而且不会把焦点抢给别的应用。</div><div class="sub">参数</div><table class="params"><tr><td class="pk">stream</td><td>music / ring / alarm / notification / voice</td></tr><tr><td class="pk">action</td><td>up / down / mute / unmute / set</td></tr></table></section>
+<section class="entry" id="应用与系统-brightness" data-key="应用与系统-brightness"><h2>brightness<span class="sum">调节亮度</span></h2><div class="detail">需要 **WRITE_SETTINGS 特殊权限**——这个权限**不能通过运行时对话框授予**,必须去「设置 → 应用 → 本 App → 修改系统设置」手动打开。先查 device 返回的 brightness.writable 可以避免无谓失败。<br><br>写入时会**同时把亮度模式置为手动**,否则自动亮度机型会立刻覆盖回去。</div></section>
+<h1 class="cat" id="概念与约定">概念与约定<span class="blurb">理解这几条能少踩很多坑</span></h1><section class="entry" id="概念与约定-坐标约定" data-key="概念与约定-坐标约定"><h2>坐标约定<span class="sum">一切坐标都是全屏截图像素</span></h2><div class="detail">原点是屏幕左上角,尺寸与截图一致(含导航栏)。<br><br>⚠️ 别用 Android 的 resources.displayMetrics——那是「应用可用区域」,在手势导航机型上会少掉导航栏高度(实测 2261 vs 2400)。据此换算会让坐标整体偏移。<br><br>截图有缩放时,换算规则:<br>触摸坐标 = 图像坐标 ÷ scale + region 左上角</div></section>
+<section class="entry" id="概念与约定-两个独立的授权" data-key="概念与约定-两个独立的授权"><h2>两个独立的授权<span class="sum">常驻通知 ≠ 无障碍</span></h2><div class="detail">**常驻通知(前台服务)**:让进程活着,端口继续监听。掉了的表现是「手机从电脑视野里消失」。<br><br>**无障碍服务**:允许读界面、截图、注入手势。掉了的表现是「端口还在,但所有操作类命令失败」。<br><br>这两个是独立状态,排查时先看掉的是哪一个。</div></section>
+<section class="entry" id="概念与约定-分层选择策略" data-key="概念与约定-分层选择策略"><h2>分层选择策略<span class="sum">按成本递进,别一上来就烧算力</span></h2><div class="detail">找目标时按这个顺序,绝大多数情况在第一层就解决了:<br><br>1. find 控件树 —— 毫秒级,覆盖原生控件(大多数界面)<br>2. findtext + OCR —— 数百毫秒,覆盖 WebView、游戏、图片文字<br>3. findcolor / findimage —— 百毫秒级,无文字但颜色图形稳定<br>4. observe 交给视觉模型 —— 秒级 + token,前三层都失败时兜底</div></section>
+<section class="entry" id="概念与约定-安全边界" data-key="概念与约定-安全边界"><h2>安全边界<span class="sum">免 root 的固有天花板</span></h2><div class="detail">dispatchGesture 注入的事件由系统统一生成,**压力(getPressure)、接触面积(getSize)、来源设备 id(getDeviceId)无法自定义**。这三项在应用层都是可读的公开 API,属于免 root 路线的硬上限;要覆盖它们只有 sendevent 直接写 /dev/input/eventX,那需要 root。<br><br>好消息:InputEvent.isTainted() 是 @hide 的内部标志,普通 App 读不到。</div></section>
+<section class="entry" id="概念与约定-访问令牌" data-key="概念与约定-访问令牌"><h2>访问令牌<span class="sum">可选的端口认证</span></h2><div class="detail">App 首页「访问令牌」区块控制端口是否要求认证。<br><br>• **关闭**(默认)—— 同一局域网内任意设备都能连,**调用不用带令牌**<br>• **开启** —— 每次调用都必须带 `token`,否则返回 `code:"unauthorized"`<br><br>几点设计取舍:<br>• 令牌与开关**分开存**,关掉保护不会丢密钥<br>• **重启保持** —— App 重启、手机重启都不变,只有人工点击才会更换<br>• **更换有二次确认** —— 因为它会让所有正在用旧令牌的脚本和插件**立刻失效**<br>• 首次启动**自动生成**一个 16 位密钥,但**不会自动开启**保护<br>• 开关或更换会**重启控制服务**(令牌在服务启动时读一次,换来请求热路径<br>  上不必每次查偏好设置)</div></section>
+</main>
+<script>
+  const INDEX = [{"key":"如何调用-方式一-dsh-插件","hay":"方式一:dsh 插件 让大模型直接调用(推荐) 插件装在 dsh 的 web profile 里,工具名 **phone_lan**。模型自己会挑 action,你只需要用自然语言描述目标。\n\n地址在插件包自己的 cordis.patch.yml 里配置(host / port / toolname),改完要重启 dsh——新增或改配置都不会热加载。 "},{"key":"如何调用-方式二-原始-tcp","hay":"方式二:原始 tcp 一行一个 json,任何语言都能接 不依赖任何 sdk。协议就是 **一行一个 json**,utf-8,`\\\n` 分隔,默认端口 **7912**。\n\n响应也是一行:成功是 `{\"ok\":true,\"data\":{...}}`,失败是 `{\"ok\":false,\"error\":\"...\",\"code\":\"...\"}`。单条失败**不会断开连接**,可以继续发。 "},{"key":"如何调用-方式三-python-客户端","hay":"方式三:python 客户端 现成的参考实现 `pc/pyclient/phone_client.py`,约 200 行,直接读它就能理解协议。不需要的话可以在脚本里更简单地自己写一个。 "},{"key":"如何调用-频率与限流","hay":"频率与限流 高频发送会怎样,以及正确的写法 服务端**串行执行**所有操作:同一时刻只处理一个,后到的排队。\n\n所以**不要不等响应就连续发**。一次 tap 要「手势 + 截图」约 300–800ms,连发 100 个的话,第 100 个要等近一分钟才回,看起来就是卡死。\n\napp 侧做了两道保护:\n\n1. **点击节流**——两次点击之间强制最小间隔,默认 110ms(大致是人手最快连点速度)。可用 `minintervalms` 调整,设 0 关闭。\n2. **并发上限**——同时有 4 个操作在跑时,新请求直接返回 `busy` 错误而不是排队。\n\n**滑动和长按不受节流约束**:它们本身就是长动作,强行间隔没有物理依据。\n\n正确写法是**串行等待**:发一个 → 等响应 → 再发下一个。 "},{"key":"如何调用-错误码","hay":"错误码 区分该重试还是该改参数 失败响应的 `code` 字段告诉你该怎么办:\n\n• `bad_request` — 参数不合法 → **不要重试**,改参数\n• `not_ready` — 界面或服务尚未就绪 → 稍等再试\n• `timeout` — 超时 → 可重试一次\n• `busy` — 操作积压 → 等一会儿再发\n• `unauthorized` — 令牌不匹配 → 检查 token\n• `io` — 读写失败 → 重连\n\n**`bad_request` 重复发送必然重复失败**,这是最容易浪费请求的一种。 "},{"key":"连接与状态-ping","hay":"ping 连通性与无障碍状态 最轻的一次往返。用来区分「连不上」「连上了但无障碍没开」「一切正常」三种情况。accessibility 为 false 时,除 ping / info / device 外的命令都会失败。 "},{"key":"连接与状态-info","hay":"info 设备与屏幕基本信息 型号、系统版本、屏幕尺寸、旋转角、亮灭屏、锁屏状态、前台包名。screenwidth/height 是「全屏」尺寸(含导航栏),与截图坐标系一致。 "},{"key":"连接与状态-device","hay":"device 完整设备状态 一次拿全:身份、屏幕、电量(百分比/充电/温度/健康度)、亮灭屏、锁屏、音量(5 种流)、亮度、网络、存储、内存,以及本服务自身的运行状态。不需要无障碍权限,所以服务没绑定时也能用它排查。取不到的值返回 null 或 -1,不会编造一个看起来合理的数。 "},{"key":"连接与状态-wake","hay":"wake 唤醒屏幕 只点亮屏幕,不解锁,也不尝试解锁。**息屏时派发的手势会被系统静默丢弃**——不报错也不回调,是最难排查的一类失败,所以操作前先 wake。返回里带 locked,锁屏状态下手势同样到不了应用。 "},{"key":"看屏幕-uitree","hay":"uitree 界面节点树 无障碍节点树。interactiveonly 为 true 时只回可操作节点,并且是扁平列表而非层级——列表类页面能缩到 1/10,而且调用方想知道的多半就是「这屏能点哪些」。 maxdepth 最大深度,默认 30 maxnodes 最大节点数,默认 2000 interactiveonly 只回可操作节点,默认 false"},{"key":"看屏幕-observe","hay":"observe 截图 + 界面树(一次往返) 最常用的一条。一次往返同时拿到画面和节点树,避免截图与树不同步。支持缩放和区域裁剪,响应里会给出全屏尺寸与缩放系数。 includeui 是否附带界面树,默认 true scale 0.05–1,缩小截图。边长减半省约 4 倍带宽 region [left,top,right,bottom],限定范围 interactiveonly 界面树只回可操作节点 quality jpeg 质量 1–100,默认 82"},{"key":"看屏幕-screenshot","hay":"screenshot 仅截图 只取画面,不取节点树。同样支持 scale 与 region。 "},{"key":"看屏幕-find","hay":"find 控件选择器 按条件在节点树里筛选,**只返回命中项**。这是省 token 的关键:聊天列表或 webview 动辄几千节点,全量传给模型又贵又慢,而手机本地筛完只要几毫秒。返回的 center 可直接用于 tap。 text 文本完全相等 textcontains 文本包含 textregex 文本正则(java 语法) desc / desccontains contentdescription viewid 资源 id,**按后缀匹配**(传 btn_login 即可) viewidcontains 资源 id 包含 cls 类名短名,如 textview、button clickable 等 clickable/longclickable/scrollable/editable/enabled/checked/selected/focused depthmin / depthmax 深度范围"},{"key":"看屏幕-findtext","hay":"findtext 按文本找控件 ⭐ 融合节点树与 ocr,并把命中点解析成**真正可点击的控件**。\n\n关键坑:显示文字的节点和能点击的节点**通常不是同一个**。文字常在一个不可点击的 textview 里,真正响应点击的是它的父 linearlayout。findtext 会对命中点做命中测试,返回这一点之下「最深且最小」的可点击节点。\n\n**点 taptarget.center,不要点文字自己的 center。** text 要查找的文本 mode contains(默认)/ exact / regex source auto(默认,先树后 ocr)/ node / ocr tappable 是否解析可点击目标,默认 true"},{"key":"看屏幕-ocr","hay":"ocr 本地文字识别 在手机本地跑 ocr(ml kit bundled 版,模型在 apk 内,**不需要 google play 服务**,国行无 gms 也能用)。\n\n用于节点树看不到内容的场景:webview/h5、游戏、canvas、自绘控件、图片里的文字。**原生控件场景优先用 find**,快几百倍且带 viewid。\n\n返回按 block → line → element 三级组织。 "},{"key":"看屏幕-colorat","hay":"colorat 单点取色 取屏幕上某一个像素的颜色。findcolor 的廉价版:取一个点只要一次截图加一次数组索引,而 findcolor 要扫全屏。**适合轮询状态指示灯,不适合定位目标。** "},{"key":"看屏幕-findmulti","hay":"findmulti 多点找色(锚点+偏移) **单个颜色在真实屏幕上几乎没有辨识度** —— 任何一个色调都有成千上万像素命中,所以单点找色只能告诉你\"这个颜色在哪\",不能告诉你\"那个东西在哪\"。\n\n多点找色用**一个锚点色 + 若干固定偏移点**来描述目标:必须**锚点命中,且每个偏移点也各自命中自己的颜色**,才算一处匹配。这样才能在几百个图标里锁定特定那一个。\n\n`points` 是 `[dx, dy, 颜色]` 的数组,坐标**相对锚点**。\n\n**采样要点**:\n• 锚点选**稀有、稳定**的像素(纯色背景块最差,满屏都是)\n• 偏移点选**纹理丰富**的位置 —— 边缘、文字、图标细节\n• 偏移量**越大越精确**,但也越不耐缩放\n• 3–6 个偏移点通常就够,超过 48 会被拒\n\n响应里的 `anchorstried` 能帮你判断锚点选得好不好:**这个数越大,说明锚点色越普通**,匹配会越慢。 anchor 锚点颜色 #rrggbb points [[dx,dy,\"#rrggbb\"], ...] 相对锚点的偏移 tolerance 每个通道的容差 0–255,默认 16 region 限定搜索范围 max 最多返回几处,默认 20"},{"key":"看屏幕-findcolor","hay":"findcolor 单点找色(按簇返回) 按颜色查找,返回**按像素数排序的聚类区域**,而不是一堆原始像素点。用于节点树看不到内容、但颜色稳定的目标:徽标、进度条、游戏元素。region 能显著提速。 color #rrggbb 或 #aarrggbb tolerance 每通道容差 0–255,默认 16 region 限定搜索范围 clustersize 聚类网格边长,默认 24"},{"key":"看屏幕-findimage","hay":"findimage 找图(模板匹配) 朴素全分辨率匹配是 o(宽×高×模板面积)——1080×2400 配 100×100 模板约 2.2×10¹⁰ 次比较,要几十秒。这里先把图和模板降到模板长边约 28px 做穷举粗筛,再对前几个候选在原分辨率上小范围精修,因此能在百毫秒级返回。\n\n**缩小 region 是最有效的提速手段。** "},{"key":"看屏幕-waitstable","hay":"waitstable 等待界面稳定 连续 n 帧界面指纹相同即认为稳定,比固定 sleep 可靠得多。**会如实报告是否真的稳定了**,所以调用方能区分「已就绪」和「到点了还在变」。 "},{"key":"操作屏幕-tap","hay":"tap 点击(拟人) 落点带高斯散点(σ≈5.5px)、亚像素级微滑、52–139ms 随机按压时长。\n\n**这不是可选项**:human:false 只是留给 a/b 对照的开关,正常使用不应打开。 x / y 全屏截图像素坐标 retry 被取消时重试 1–5 次,默认 1 minintervalms 两次点击最小间隔,默认 110ms;设 0 关闭 human 默认 true。false 仅用于对照"},{"key":"操作屏幕-doubletap","hay":"doubletap 双击(拟人) 两次接触的**间隔(88–209ms)和第二次落点都随机**。\n\n实现细节:两次接触放在**同一条 gesturedescription 的两个 stroke** 里,而不是发两次请求——框架正是靠「同一输入序列内的两次接触」识别双击的,分两次往返反而不成立。 "},{"key":"操作屏幕-longpress","hay":"longpress 长按(拟人) 按住期间**分 3 段微动**——真人手指不会完全静止。原来的实现是一根静止的直线,特征明显。 holdms 按住时长,300–5000ms,默认 650 retry 被取消时重试次数"},{"key":"操作屏幕-swipe","hay":"swipe 滑动(到达后停留再抬手) 二次贝塞尔弧线(控制点随机、朝随机侧弯曲约 ±2.2% 弦长)、沿法线叠加的生理性震颤(两端收敛为 0),速度剖面为**加速 → 匀速 → 减速 → 到达后停留约 200ms 再抬手**。\n\n**为什么要有那个停留**:系统在手指离开后按**抬手瞬间的速度**决定要不要继续惯性滚动。末尾速度快就会\"甩\"出去、落点超出坐标;速度接近 0 才会正好停在目标。\n\n只靠减速曲线做不到这件事:300ms 内既要走完 1000px、又要在最后100ms 爬行,数学上不可能。**停留 200ms 绕开了这道算术** —— 最后那段采样点几乎重合,速度必然是 0,无论滑得多快。\n\n这也正是真人的做法:快速划过去,**停住**,再抬手。停留只有 200ms,不增加可见的耗时。\n\n**实践建议**:\n• 需要**落在指定位置** → 用 600–1200ms\n• 需要**快速翻页** → 用 200–350ms,现在同样能刹住\n• 要**读完整列表** → 用 `sweep`,它自己处理滚动 durationms 60–4000,默认 320。末尾另有约 200ms 停留 human 默认 true。false 为机械直线,仅用于对照 trace true 时返回 [x,y,timems] 采样点,用于画速度曲线"},{"key":"操作屏幕-swipemeasure","hay":"swipemeasure 滑动并测量真实位移 滑动,**并告诉你内容实际滚了多远**。\n\n`swipe` 返回 `completed:true` 只说明手势被系统接受了,**完全不代表内容滚动了相应的距离** —— 列表到边界就不再跟手、惯性会让它继续走、页面也可能根本不滚。想知道实情只能量。\n\n做法是滑动前后各截一屏,用归一化互相关找垂直偏移。\n\n**读法**:\n• `fingerdistance` 手指走了多远\n• `contentshift` 内容实际滚了多少(**-1 表示无法测量**,不是 0)\n• `efficiency` = 位移 ÷ 手指距离。**大于 1 说明触发了惯性**\n• `matchscore` 匹配相关系数,偏低说明两次截图没对齐(页面变了) durationms 滑动时长,同上 settlems 滑动后等待多久再截图,默认 800。惯性大的要留足"},{"key":"操作屏幕-flick","hay":"flick 惯性甩动 短而快的滑动,让内容带着惯性继续滚。\n\n**和 swipe 是两种操作**:同样距离慢慢拖是拖拽(内容精确跟随手指),快速甩是抛出(内容继续滚一段),应用对两者的响应确实不同。 "},{"key":"操作屏幕-pinch","hay":"pinch 双指缩放 两根手指放在**同一条 gesturedescription** 里,所以是同时落下——框架正是靠这个区分「捏合」和「两次独立滑动」。\n\nendspread 大于 startspread 是放大,反之缩小。地图、图片查看器、部分游戏没有替代方案。 "},{"key":"操作屏幕-scroll","hay":"scroll 按容器滚动一屏 找到第 index 个可滚动容器,对它下发 action_scroll_forward / backward。\n\n比「盲滑屏幕」可靠:手势锚定在容器自身边界内,不会误触到浮动按钮或底部导航栏。响应会回传被滚动的容器信息。 direction forward(默认)/ backward index 第几个可滚动容器,默认 0"},{"key":"操作屏幕-key","hay":"key 系统按键(8 个) 全局系统动作。响应会回传中文名 label,便于日志和展示。\n\n• `back` — 返回\n• `home` — 回到桌面\n• `recents` / `appswitch` — 最近任务\n• `notifications` — 下拉通知栏\n• `quick_settings` — 快捷设置面板\n• `power` — 电源菜单\n• `lock` — 锁屏\n• `screenshot` — 截屏\n\n⚠️ 这里只有**全局动作**,没有 enter / 退格——无障碍服务注入不了按键事件。\n需要提交输入用 `send`,需要回删用 `delete`。 "},{"key":"输入文字-text","hay":"text 向焦点输入框写文本 走 action_set_text,所以**中文和 emoji 直接可用,不需要输入法,也不走剪贴板**——这正是 adb 方案要额外跑 scrcpy 才能做到的事。\n\ntyping:\"natural\" 会逐字符提交并插入随机间隔。**整段文字在一帧里出现本身就是个信号**,没有人类是那样打字的。代价是慢,只在输入框会观察输入时序时才值得。 text 要写入的文本 mode replace(默认)/ append / clear typing instant(默认)/ natural"},{"key":"输入文字-send","hay":"send 提交输入(发送 / 搜索 / 完成) 让输入法执行它自己的编辑器动作:聊天框里是「发送」,搜索框里是「搜索」,表单里是「完成」——和你按键盘右下角那个键**是同一个动作**,所以应用对两者的处理完全一致。\n\n⚠️ 这**不是**合成的 enter 按键。无障碍服务根本无法注入按键事件(那需要 inject_events,只有 shell/系统权限才有),所以只能走输入法这条路。\n\n字段若返回 sent:false,说明它没有声明编辑器动作,此时改用点击发送按钮。 "},{"key":"输入文字-delete","hay":"delete 回删(退格) 从焦点输入框末尾删除 n 个字符,默认 1。\n\n⚠️ **实现方式的诚实说明**:无障碍没有任何「发送退格键」的动作(同样要 inject_events)。这里的做法是读出当前文本、写回去掉末尾的内容。\n\n**内容上完全等价**,区别在于它是一次原子写入——如果某个输入框会检查按键节奏,是能看出差别的。这是免 root 路线的硬限制,不是实现疏漏。 count 删除字符数,1–500,默认 1"},{"key":"输入文字-clear","hay":"clear 清空输入框 把焦点输入框清空,返回清空前的内容长度。\n\n比 text 的 mode:\"clear\" 更直观,单独成一个命令是因为「清空重填」是很常见的一步,值得少写一个参数。 "},{"key":"输入文字-clipboard","hay":"clipboard 剪贴板读 / 写 / 粘贴 get 读取、set 写入、paste 注入到当前焦点输入框。\n\n**paste 是救命路径**:某些输入框拒绝 action_set_text(只认真实输入事件),此时只能先把文本写进剪贴板再粘贴。 "},{"key":"应用与系统-launch","hay":"launch 启动应用 按包名启动。需要先知道包名,可以用 apps 查。 "},{"key":"应用与系统-deeplink","hay":"deeplink 打开 uri(直达页面) 直达某个 app 的具体页面,省掉「启动 → 再点进去」的整段流程。也绕开了「应用打开后停在开屏页或更新提示,模型找不到入口」这类常见失败。 "},{"key":"应用与系统-apps","hay":"apps 已安装应用列表 返回有启动入口的应用(标签 + 包名),可按名称或包名过滤。默认不含系统预装应用。 "},{"key":"应用与系统-stopapp","hay":"stopapp 结束后台应用 用 killbackgroundprocesses,**这是无 root 情况下能拿到的最强手段**:\n\n它只回收**已在后台**的进程,前台应用不受影响。返回里的 stillrunning 和 note 会如实说明这一点,而不是假装它是 force-stop——真正的前台强停需要 shell 权限。 "},{"key":"应用与系统-volume","hay":"volume 调节音量 走 audiomanager 而不是合成按键事件——**息屏时也能用**,而且不会把焦点抢给别的应用。 stream music / ring / alarm / notification / voice action up / down / mute / unmute / set"},{"key":"应用与系统-brightness","hay":"brightness 调节亮度 需要 **write_settings 特殊权限**——这个权限**不能通过运行时对话框授予**,必须去「设置 → 应用 → 本 app → 修改系统设置」手动打开。先查 device 返回的 brightness.writable 可以避免无谓失败。\n\n写入时会**同时把亮度模式置为手动**,否则自动亮度机型会立刻覆盖回去。 "},{"key":"概念与约定-坐标约定","hay":"坐标约定 一切坐标都是全屏截图像素 原点是屏幕左上角,尺寸与截图一致(含导航栏)。\n\n⚠️ 别用 android 的 resources.displaymetrics——那是「应用可用区域」,在手势导航机型上会少掉导航栏高度(实测 2261 vs 2400)。据此换算会让坐标整体偏移。\n\n截图有缩放时,换算规则:\n触摸坐标 = 图像坐标 ÷ scale + region 左上角 "},{"key":"概念与约定-两个独立的授权","hay":"两个独立的授权 常驻通知 ≠ 无障碍 **常驻通知(前台服务)**:让进程活着,端口继续监听。掉了的表现是「手机从电脑视野里消失」。\n\n**无障碍服务**:允许读界面、截图、注入手势。掉了的表现是「端口还在,但所有操作类命令失败」。\n\n这两个是独立状态,排查时先看掉的是哪一个。 "},{"key":"概念与约定-分层选择策略","hay":"分层选择策略 按成本递进,别一上来就烧算力 找目标时按这个顺序,绝大多数情况在第一层就解决了:\n\n1. find 控件树 —— 毫秒级,覆盖原生控件(大多数界面)\n2. findtext + ocr —— 数百毫秒,覆盖 webview、游戏、图片文字\n3. findcolor / findimage —— 百毫秒级,无文字但颜色图形稳定\n4. observe 交给视觉模型 —— 秒级 + token,前三层都失败时兜底 "},{"key":"概念与约定-安全边界","hay":"安全边界 免 root 的固有天花板 dispatchgesture 注入的事件由系统统一生成,**压力(getpressure)、接触面积(getsize)、来源设备 id(getdeviceid)无法自定义**。这三项在应用层都是可读的公开 api,属于免 root 路线的硬上限;要覆盖它们只有 sendevent 直接写 /dev/input/eventx,那需要 root。\n\n好消息:inputevent.istainted() 是 @hide 的内部标志,普通 app 读不到。 "},{"key":"概念与约定-访问令牌","hay":"访问令牌 可选的端口认证 app 首页「访问令牌」区块控制端口是否要求认证。\n\n• **关闭**(默认)—— 同一局域网内任意设备都能连,**调用不用带令牌**\n• **开启** —— 每次调用都必须带 `token`,否则返回 `code:\"unauthorized\"`\n\n几点设计取舍:\n• 令牌与开关**分开存**,关掉保护不会丢密钥\n• **重启保持** —— app 重启、手机重启都不变,只有人工点击才会更换\n• **更换有二次确认** —— 因为它会让所有正在用旧令牌的脚本和插件**立刻失效**\n• 首次启动**自动生成**一个 16 位密钥,但**不会自动开启**保护\n• 开关或更换会**重启控制服务**(令牌在服务启动时读一次,换来请求热路径\n  上不必每次查偏好设置) "}];
+  const items = [...document.querySelectorAll(".nav-item")];
+  const groups = [...document.querySelectorAll(".nav-group")];
+  const entries = [...document.querySelectorAll(".entry")];
+  const cats = [...document.querySelectorAll(".cat")];
+  const picked = document.getElementById("picked");
+  const noHit = document.getElementById("noHit");
+  const main = document.querySelector("main");
+
+  let only = null; // key of the single entry being shown, or null for all
+
+  function applyVisibility() {
+    for (const e of entries) {
+      e.classList.toggle("hidden", only !== null && e.dataset.key !== only);
+    }
+    // A category heading is pointless when only one entry under it is shown.
+    for (const c of cats) {
+      const slug = c.id;
+      const visible = entries.some(
+        (e) => !e.classList.contains("hidden") && e.dataset.key.startsWith(slug + "-"),
+      );
+      c.classList.toggle("hidden", !visible);
+    }
+  }
+
+  function select(key, label) {
+    only = key;
+    items.forEach((i) => i.classList.toggle("active", i.dataset.key === key));
+    picked.textContent = key === null ? `正在显示:全部 ${INDEX.length} 项` : `正在显示:${label}`;
+    applyVisibility();
+    main.scrollTop = 0;
+  }
+
+  for (const item of items) {
+    item.addEventListener("click", (ev) => {
+      ev.preventDefault();
+      const key = item.dataset.key;
+      select(only === key ? null : key, item.querySelector(".nav-name").textContent);
+    });
+  }
+
+  document.getElementById("showAll").addEventListener("click", () => {
+    document.getElementById("q").value = "";
+    filter("");
+    select(null, "");
+  });
+
+  function filter(query) {
+    const q = query.trim().toLowerCase();
+    if (q === "") {
+      items.forEach((i) => i.classList.remove("hidden"));
+      groups.forEach((g) => g.classList.remove("hidden"));
+      noHit.style.display = "none";
+      return;
+    }
+    // Match the body text too, not just the title: people search for "拖拽" or
+    // "电量", which appear in descriptions rather than in command names.
+    const hits = new Set(INDEX.filter((row) => row.hay.includes(q)).map((row) => row.key));
+    items.forEach((i) => i.classList.toggle("hidden", !hits.has(i.dataset.key)));
+    groups.forEach((g) => {
+      const any = [...g.querySelectorAll(".nav-item")].some((i) => !i.classList.contains("hidden"));
+      g.classList.toggle("hidden", !any);
+    });
+    noHit.style.display = hits.size === 0 ? "block" : "none";
+  }
+
+  document.getElementById("q").addEventListener("input", (ev) => filter(ev.target.value));
+
+  applyVisibility();
+</script>
+</body>
+</html>

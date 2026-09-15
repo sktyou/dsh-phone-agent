@@ -1,0 +1,33 @@
+# Build output
+android/.gradle/
+android/build/
+android/app/build/
+android/.idea/
+android/local.properties
+android/captures/
+*.iml
+.gradle/
+.kotlin/
+
+# The APK is published as a Release asset, not committed: at 51 MB it would be
+# re-stored in full on every rebuild and bloat the repository for no benefit.
+DSHPhoneAgent-debug.apk
+*.apk
+
+# Debugging frames. docs/ accumulated ~100 full-screen captures during development
+# (before/after pairs, comparison shots, scroll tests); they are kept locally but
+# are not part of the project. Curated images live in screenshots/.
+docs/*.png
+docs/*.jpg
+docs/gkd-sample.json5
+docs/menu-lines.txt
+docs/touch.log
+docs/menu-*.csv
+
+# Generated into assets at build time: tools/webui/index.html is copied by the
+# build script and SKILL.md by the syncSkillDoc task. Committing the copies would
+# mean two sources of truth that can disagree.
+android/app/src/main/assets/webui/index.html
+android/app/src/main/assets/webui/SKILL.md
+
+node_modules/

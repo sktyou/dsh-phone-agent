@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">DSH Phone Agent</string>
+    <string name="accessibility_description">供设备所有者通过局域网控制本机:读取屏幕内容、截图并执行手势。不会在未授权时启用。</string>
+</resources>

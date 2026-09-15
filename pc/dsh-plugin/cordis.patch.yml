@@ -1,0 +1,10 @@
+- insert:
+    - id: phone-agent
+      name: dsh-phone-agent
+      config:
+        # 手机 App「控制服务」界面显示的 IP。改这里之后需要重启 DSH。
+        host: 192.168.12.138
+        port: 7912
+        # 工具名。保持 phone_lan 是为了不与现有 OpenGUI 插件的 phone_agent 冲突；
+        # 若要完全替代它，可改成 phone_agent 并在 profile patch 里禁用 coremate-mobile。
+        toolName: phone_lan

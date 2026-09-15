@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Notification small icon.
+
+    Android renders notification small icons as a single-colour silhouette: the
+    system takes the alpha channel and tints it, ignoring any colour declared
+    here. That makes the launcher icon unusable as-is — a filled rounded square
+    would come out as a solid white block.
+
+    It also means the "DSH Agent" lettering cannot be reused: at the ~24dp the
+    status bar allots, six characters collapse into an illegible smear. So this
+    is a symbol instead — a phone outline with a centre dot, which is still
+    readable when it is only a few pixels wide and reads as "something is
+    controlling a device", which is what the notification means.
+
+    Drawn on a 24x24 viewport to match the platform grid, with the stroke kept
+    near 1.6 units so it does not clot when scaled down.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+
+    <!-- Phone body, outlined so the centre dot stays the focal point. -->
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M9,2.8 L15,2.8 A2.2,2.2 0 0 1 17.2,5 L17.2,19 A2.2,2.2 0 0 1 15,21.2 L9,21.2 A2.2,2.2 0 0 1 6.8,19 L6.8,5 A2.2,2.2 0 0 1 9,2.8 Z"
+        android:strokeColor="#FFFFFF"
+        android:strokeLineJoin="round"
+        android:strokeWidth="1.6" />
+
+    <!-- Centre dot: the agent. -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M12,10 A2,2 0 1 1 12,14 A2,2 0 1 1 12,10 Z" />
+
+</vector>
