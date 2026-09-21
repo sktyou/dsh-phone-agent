@@ -10,11 +10,27 @@
  */
 
 import { spawn } from "node:child_process";
+import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const SERVER = path.join(HERE, "..", "pc", "mcp-server", "index.mjs");
+
+/**
+ * Locate the server.
+ *
+ * Two layouts have to work: inside the repository (`tools/` next to `pc/mcp-server/`)
+ * and after being downloaded from the phone, where the server lands in the same
+ * directory as this file. A script that only handles the repo layout is useless in
+ * the case it was written for.
+ */
+const SERVER = (() => {
+  const beside = path.join(HERE, "index.mjs");
+  if (fs.existsSync(beside)) return beside;
+  const inRepo = path.join(HERE, "..", "pc", "mcp-server", "index.mjs");
+  if (fs.existsSync(inRepo)) return inRepo;
+  return beside;   // report the natural location in the error
+})();
 
 function argOf(name, fallback) {
   const i = process.argv.indexOf(`--${name}`);

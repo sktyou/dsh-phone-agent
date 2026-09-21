@@ -4,6 +4,7 @@ import android.app.Activity
 import android.app.AlertDialog
 import android.content.ClipData
 import android.content.ClipboardManager
+import android.content.Context
 import android.content.Intent
 import android.graphics.Color
 import android.graphics.Typeface
@@ -17,6 +18,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.LinearLayout
 import android.widget.ScrollView
+import android.widget.Switch
 import android.widget.TextView
 import android.widget.Toast
 import com.dsh.phoneagent.Ui.card
@@ -121,6 +123,9 @@ class MainActivity : Activity() {
         root.addView(sectionTitle("访问令牌"))
         root.addView(tokenCard())
 
+        root.addView(sectionTitle("MCP 服务"))
+        root.addView(mcpCard())
+
         root.addView(sectionTitle("运行统计"))
         statValues = listOf(statValue(), statValue(), statValue())
         root.addView(
@@ -140,7 +145,7 @@ class MainActivity : Activity() {
         )
 
         root.addView(
-            text("v0.2.0 · 局域网直连 · 不依赖 adb", 11.5f, Ui.FAINT).apply {
+            text("v0.2.1 · 局域网直连 · 不依赖 adb", 11.5f, Ui.FAINT).apply {
                 gravity = Gravity.CENTER
                 setPadding(0, dp(20), 0, dp(4))
             },
@@ -311,6 +316,153 @@ class MainActivity : Activity() {
         val clipboard = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
         clipboard.setPrimaryClip(ClipData.newPlainText("phone endpoint", value))
         Toast.makeText(this, "已复制 $value", Toast.LENGTH_SHORT).show()
+    }
+
+    /**
+     * MCP service switch.
+     *
+     * Off by default. What the switch gates is not the control channel — that stays
+     * open for the console and any existing script — but the handout: the pre-filled
+     * configuration and the downloadable bridge under the mcp path. A bridge that a
+     * machine on the LAN can fetch and run in two minutes is worth requiring a
+     * deliberate opt-in for.
+     *
+     * The card owns a container that the switch rewrites in place. Rebuilding the
+     * whole screen instead made every other card flicker on each toggle, which reads
+     * as a glitch rather than as a state change.
+     */
+    private fun mcpCard(): LinearLayout = card(paddingDp = 16).apply {
+        val host = "${DeviceStatus.localIpAddress()}:${WebConsole.DEFAULT_PORT}"
+        val on = McpSettings.isEnabled(this@MainActivity)
+
+        // Captured directly rather than looked up by tag: the switch needs to rewrite
+        // exactly this line and the body, and holding the references is both simpler
+        // and typo-proof.
+        val stateText = text(mcpStateLine(on), 12f, Ui.MUTED).apply {
+            setPadding(0, dp(3), 0, 0)
+        }
+        val body = LinearLayout(this@MainActivity).apply { orientation = LinearLayout.VERTICAL }
+
+        addView(
+            LinearLayout(this@MainActivity).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                addView(
+                    LinearLayout(this@MainActivity).apply {
+                        orientation = LinearLayout.VERTICAL
+                        addView(text("MCP 服务", 15f, Ui.INK, bold = true))
+                        addView(stateText)
+                        layoutParams = LinearLayout.LayoutParams(
+                            0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f,
+                        )
+                    },
+                )
+                addView(
+                    Switch(this@MainActivity).apply {
+                        isChecked = on
+                        setOnCheckedChangeListener { _, checked ->
+                            McpSettings.setEnabled(this@MainActivity, checked)
+                            stateText.text = mcpStateLine(checked)
+                            renderMcpBody(body, checked, host)
+                        }
+                    },
+                )
+            },
+        )
+
+        addView(body)
+        renderMcpBody(body, on, host)
+    }
+
+    private fun mcpStateLine(enabled: Boolean): String =
+        if (enabled) "已开启 · 局域网可下载并接入" else "关闭时 /mcp 返回 403"
+
+    /** Everything below the switch, rewritten in place when it toggles. */
+    private fun renderMcpBody(body: LinearLayout, enabled: Boolean, host: String) {
+        body.removeAllViews()
+        if (!enabled) {
+            body.addView(
+                text(
+                    "开启后,同一局域网的电脑可以打开上面的地址," +
+                        "下载 MCP 桥接文件、拿到填好的配置,直接接入 Claude Code / Cursor / Codex。",
+                    12f, Ui.MUTED,
+                ).apply { setPadding(0, dp(12), 0, 0) },
+            )
+            return
+        }
+
+        body.addView(
+            text("http://$host/mcp/", 12.5f, Ui.BRAND, mono = true).apply {
+                setPadding(0, dp(14), 0, dp(10))
+                isClickable = true
+                setOnClickListener { openUrl("http://$host/mcp/") }
+            },
+        )
+        body.addView(
+            LinearLayout(this@MainActivity).apply {
+                orientation = LinearLayout.HORIZONTAL
+                addView(
+                    pillButton("打开帮助页", Ui.BRAND, 0xFFFFFFFF.toInt()) {
+                        openUrl("http://$host/mcp/")
+                    }.apply {
+                        (layoutParams as LinearLayout.LayoutParams).weight = 1f
+                        (layoutParams as LinearLayout.LayoutParams).rightMargin = dp(8)
+                    },
+                )
+                addView(
+                    pillButton("复制接入信息", Ui.BRAND_SOFT, Ui.BRAND) {
+                        copyMcpInfo(host)
+                    }.apply { (layoutParams as LinearLayout.LayoutParams).weight = 1f },
+                )
+            },
+        )
+    }
+
+    private fun openUrl(url: String) {
+        runCatching {
+            startActivity(
+                Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url))
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+            )
+        }.onFailure {
+            toast("没有可用的浏览器,地址已复制")
+            copyToClipboard(url)
+        }
+    }
+
+    private fun copyMcpInfo(host: String) {
+        val text = buildString {
+            appendLine("# DSH Phone Agent · MCP 接入")
+            appendLine()
+            appendLine("帮助页:  http://$host/mcp/")
+            appendLine("桥接文件: http://$host/mcp/server.mjs")
+            appendLine("控制端口: ${host.substringBefore(":")}:7912")
+            appendLine()
+            appendLine("Claude Code / Cursor / Windsurf 配置:")
+            appendLine(
+                """{"mcpServers":{"phone":{"command":"node","args":["server.mjs","--host","${host.substringBefore(":")}"]}}}""",
+            )
+            appendLine()
+            appendLine("Codex:")
+            appendLine("[mcp_servers.phone]")
+            appendLine("command = \"node\"")
+            appendLine("args = [\"server.mjs\", \"--host\", \"${host.substringBefore(":")}\"]")
+            appendLine()
+            append("先自检: node server.mjs --host ${host.substringBefore(":")} --selftest")
+        }
+        copyToClipboard(text)
+        toast("接入信息已复制")
+    }
+
+    private fun copyToClipboard(value: String) {
+        runCatching {
+            val cm = getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+            cm.setPrimaryClip(android.content.ClipData.newPlainText("dsh-phone-agent", value))
+        }
+    }
+
+    private fun toast(message: String) {
+        android.widget.Toast.makeText(this, message, android.widget.Toast.LENGTH_SHORT).show()
     }
 
     private fun accessibilityCard(): LinearLayout = card(paddingDp = 15).apply {

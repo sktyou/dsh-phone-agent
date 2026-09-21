@@ -11,8 +11,8 @@ android {
         applicationId = "com.dsh.phoneagent"
         minSdk = 30
         targetSdk = 34
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 3
+        versionName = "0.2.1"
     }
 
     buildTypes {
@@ -56,8 +56,23 @@ val syncSkillDoc = tasks.register<Copy>("syncSkillDoc") {
     into(layout.projectDirectory.dir("src/main/assets/webui"))
 }
 
+/**
+ * Bundle the MCP server so the phone can hand it out over the LAN.
+ *
+ * The /mcp endpoints exist so another machine needs nothing but a browser: open the
+ * address, download the bridge, paste one config block, and it is driving the phone.
+ * Shipping these files inside the APK is what makes that work without a repo checkout
+ * on the client machine.
+ */
+val syncMcpFiles = tasks.register<Copy>("syncMcpFiles") {
+    from(rootProject.file("../pc/mcp-server/index.mjs"))
+    from(rootProject.file("../pc/mcp-server/README.md"))
+    from(rootProject.file("../tools/test-mcp.mjs"))
+    into(layout.projectDirectory.dir("src/main/assets/mcp"))
+}
+
 tasks.named("preBuild") {
-    dependsOn(syncSkillDoc)
+    dependsOn(syncSkillDoc, syncMcpFiles)
 }
 
 // Almost entirely framework-only. The one exception is on-device OCR: ML Kit's

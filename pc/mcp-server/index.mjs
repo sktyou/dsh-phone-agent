@@ -409,6 +409,40 @@ const TOOLS = [
 
 const SERVER_INFO = { name: "dsh-phone-agent", version: "0.1.0" };
 
+/**
+ * `--selftest` talks to the phone once and prints what it found.
+ *
+ * A client-side check that a config file parses proves nothing about reachability;
+ * this proves the whole path — address, port, token, accessibility grant — with one
+ * command, before any IDE is involved.
+ */
+if (process.argv.includes("--selftest")) {
+  const line = (s) => process.stdout.write(s + "\n");
+  try {
+    line(`连接 ${HOST}:${PORT} …`);
+    const info = await run({ cmd: "info" });
+    line(`  型号     ${info.model ?? "?"}`);
+    line(`  屏幕     ${info.screenWidth}x${info.screenHeight}`);
+    line(`  前台     ${info.foregroundPackage || "(无)"}`);
+    line(`  无障碍   ${info.accessibility ? "已连接" : "未连接 ← 手机上需要开启"}`);
+    const perms = await run({ cmd: "perms" });
+    line(`  权限     ${perms.okCount}/${perms.count} 项正常`);
+    for (const item of (perms.items ?? []).filter((i) => !i.ok)) {
+      line(`             ✗ ${item.name}: ${item.detail}`);
+    }
+    line(`\n链路正常,可以把下面的配置加进 IDE:`);
+    line(JSON.stringify(
+      { mcpServers: { phone: { command: "node", args: ["<此文件路径>", "--host", HOST] } } },
+      null, 2,
+    ));
+    process.exit(0);
+  } catch (e) {
+    line(`\n❌ ${e.message}`);
+    line(`\n排查:1) 手机与电脑在同一局域网  2) 手机上无障碍已开启  3) IP 是否变化`);
+    process.exit(1);
+  }
+}
+
 // ---------------------------------------------------------------- JSON-RPC
 
 function send(message) {

@@ -132,6 +132,24 @@ object DeviceStatus {
         return power.isInteractive
     }
 
+    /**
+     * The IPv4 address a client on the same LAN should dial.
+     *
+     * Enumerated rather than taken from WifiManager: on a device with a VPN or a
+     * mobile hotspot the Wi-Fi address is not necessarily the reachable one, and the
+     * interface that is up and non-loopback is the honest answer.
+     */
+    fun localIpAddress(): String = runCatching {
+        java.net.NetworkInterface.getNetworkInterfaces()
+            .toList()
+            .filter { it.isUp && !it.isLoopback }
+            .flatMap { it.inetAddresses.toList() }
+            .filterIsInstance<java.net.Inet4Address>()
+            .firstOrNull { !it.isLoopbackAddress && !it.isLinkLocalAddress }
+            ?.hostAddress
+            ?: "127.0.0.1"
+    }.getOrDefault("127.0.0.1")
+
     fun isLocked(context: Context): Boolean {
         val keyguard = context.getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
         return keyguard.isKeyguardLocked

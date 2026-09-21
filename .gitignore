@@ -25,9 +25,11 @@ docs/touch.log
 docs/menu-*.csv
 
 # Generated into assets at build time: tools/webui/index.html is copied by the
-# build script and SKILL.md by the syncSkillDoc task. Committing the copies would
-# mean two sources of truth that can disagree.
+# build script, SKILL.md by syncSkillDoc, and the MCP server + test script by
+# syncMcpFiles. Committing the copies would mean two sources of truth that can
+# disagree — and the phone serves these to clients, so a stale copy is a real bug.
 android/app/src/main/assets/webui/index.html
 android/app/src/main/assets/webui/SKILL.md
+android/app/src/main/assets/mcp/
 
 node_modules/

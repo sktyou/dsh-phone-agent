@@ -2,6 +2,8 @@ package com.dsh.phoneagent
 
 import android.content.Context
 import android.util.Log
+import org.json.JSONArray
+import org.json.JSONObject
 import java.io.BufferedOutputStream
 import java.io.BufferedReader
 import java.io.InputStreamReader
@@ -109,6 +111,7 @@ class WebConsole(
                     method == "POST" && path == "/rpc" -> handleRpc(out, body)
                     method == "GET" && path == "/shot" -> handleShot(out, rawPath)
                     method == "GET" && path == "/stream" -> handleStream(out, rawPath)
+                    path.startsWith("/mcp") -> handleMcp(out, path, rawPath)
                     else -> serveAsset(out, path)
                 }
             } catch (t: Throwable) {
@@ -320,6 +323,228 @@ class WebConsole(
                 if (kv.size == 2) kv[0] to java.net.URLDecoder.decode(kv[1], "UTF-8") else null
             }
             .toMap()
+
+    /**
+     * MCP distribution endpoints.
+     *
+     * The point is that a machine on the same LAN needs nothing but a browser: open
+     * this address, copy one command, and it is driving the phone. That convenience is
+     * exactly why it is behind a switch — a downloadable, pre-configured bridge lowers
+     * the bar for anyone on the network, not just its owner.
+     *
+     * Closed, every path here answers 403 with the reason, so a client that guessed
+     * the URL learns why rather than seeing a 404 that suggests it guessed wrong.
+     */
+    private fun handleMcp(out: BufferedOutputStream, path: String, rawPath: String) {
+        if (!McpSettings.isEnabled(context)) {
+            writeJson(
+                out, 403,
+                JSONObject()
+                    .put("ok", false)
+                    .put("error", "MCP 未启用")
+                    .put("hint", "请在手机的 DSH Phone Agent 里打开「MCP 服务」开关"),
+            )
+            return
+        }
+
+        val host = localAddress()
+        when (path) {
+            "/mcp", "/mcp/" -> writeHtml(out, mcpHelpPage(host))
+            "/mcp/config.json" -> writeJson(out, 200, mcpConfig(host))
+            else -> {
+                val name = path.removePrefix("/mcp/")
+                val assetName = when (name) {
+                    "server.mjs" -> "mcp/index.mjs"
+                    "test.mjs" -> "mcp/test-mcp.mjs"
+                    "README.md" -> "mcp/README.md"
+                    else -> null
+                }
+                if (assetName == null) {
+                    writeText(out, 404, "not found: $path")
+                    return
+                }
+                val bytes = runCatching {
+                    context.assets.open(assetName).use { it.readBytes() }
+                }.getOrNull()
+                if (bytes == null) {
+                    writeText(out, 404, "asset missing: $assetName")
+                    return
+                }
+                val type = if (name.endsWith(".mjs")) {
+                    "text/javascript; charset=utf-8"
+                } else {
+                    "text/markdown; charset=utf-8"
+                }
+                val header = buildString {
+                    append("HTTP/1.1 200 OK\r\n")
+                    append("Content-Type: ").append(type).append("\r\n")
+                    append("Content-Length: ").append(bytes.size).append("\r\n")
+                    append("Content-Disposition: attachment; filename=\"").append(name).append("\"\r\n")
+                    append("Connection: close\r\n\r\n")
+                }
+                out.write(header.toByteArray(Charsets.UTF_8))
+                out.write(bytes)
+                out.flush()
+            }
+        }
+    }
+
+    /** The address a client on this LAN should use. */
+    private fun localAddress(): String {
+        val port = WebConsole.DEFAULT_PORT
+        val ip = DeviceStatus.localIpAddress()
+        return "$ip:$port"
+    }
+
+    /** A ready-to-paste MCP client configuration. */
+    private fun mcpConfig(host: String): JSONObject {
+        val hostOnly = host.substringBefore(":")
+        return JSONObject()
+            .put("ok", true)
+            .put(
+                "claude",
+                JSONObject().put(
+                    "mcpServers",
+                    JSONObject().put(
+                        "phone",
+                        JSONObject()
+                            .put("command", "node")
+                            .put("args", JSONArray(listOf("index.mjs", "--host", hostOnly))),
+                    ),
+                ),
+            )
+            .put(
+                "codex",
+                "[mcp_servers.phone]\ncommand = \"node\"\n" +
+                    "args = [\"index.mjs\", \"--host\", \"$hostOnly\"]",
+            )
+            .put("controlPort", hostOnly)
+            .put("console", "http://$host/")
+            .put("download", "http://$host/mcp/server.mjs")
+            .put("testScript", "http://$host/mcp/test.mjs")
+    }
+
+    /** Self-contained help page: no external assets, works offline. */
+    private fun mcpHelpPage(host: String): String {
+        val hostOnly = host.substringBefore(":")
+        return """
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>DSH Phone Agent · MCP</title>
+<style>
+  body{margin:0;padding:24px;background:#0f1115;color:#e6e9ef;
+       font:14px/1.7 "Segoe UI","Microsoft YaHei UI",system-ui,sans-serif}
+  .wrap{max-width:820px;margin:0 auto}
+  h1{font-size:22px;margin:0 0 4px}
+  h2{font-size:15px;margin:28px 0 10px;color:#7dd3fc}
+  .sub{color:#8b93a1;font-size:13px;margin-bottom:22px}
+  pre{background:#181b21;border:1px solid #2b3038;border-radius:8px;
+      padding:12px;overflow:auto;font:12px/1.6 ui-monospace,Consolas,monospace}
+  code{font-family:ui-monospace,Consolas,monospace;color:#7dd3fc}
+  a{color:#3b82f6}
+  .card{background:#181b21;border:1px solid #2b3038;border-radius:10px;
+        padding:16px;margin:12px 0}
+  .pill{display:inline-block;background:#EAF0FF;color:#2563EB;border-radius:8px;
+        padding:6px 12px;font-weight:600;font-size:13px;text-decoration:none;
+        margin:4px 8px 4px 0}
+  ol{padding-left:20px} li{margin:6px 0}
+  .muted{color:#8b93a1;font-size:12.5px}
+</style></head><body><div class="wrap">
+
+<h1>MCP 接入</h1>
+<div class="sub">让 Claude Code / Cursor / Codex / Windsurf 驱动这台手机</div>
+
+<div class="card">
+  <b>手机上 MCP 已开启</b> · 控制地址 <code>$hostOnly:7912</code>
+  <div style="margin-top:10px">
+    <a class="pill" href="/mcp/server.mjs">下载 server.mjs</a>
+    <a class="pill" href="/mcp/test.mjs">下载 test.mjs</a>
+    <a class="pill" href="/mcp/README.md">下载说明</a>
+    <a class="pill" href="/mcp/config.json">配置 JSON</a>
+  </div>
+</div>
+
+<h2>三步接入</h2>
+<ol>
+  <li><b>下载并解压</b> server.mjs 到任意目录,例如 <code>D:\phone-mcp\</code></li>
+  <li><b>把配置加进 IDE</b>(下面已按当前地址填好)</li>
+  <li><b>用自然语言下指令</b></li>
+</ol>
+
+<h2>Claude Code / Cursor / Windsurf</h2>
+<pre>{
+  "mcpServers": {
+    "phone": {
+      "command": "node",
+      "args": ["D:/phone-mcp/server.mjs", "--host", "$hostOnly"]
+    }
+  }
+}</pre>
+
+<h2>Codex</h2>
+<pre>[mcp_servers.phone]
+command = "node"
+args = ["D:/phone-mcp/server.mjs", "--host", "$hostOnly"]</pre>
+
+<h2>先验证再接入</h2>
+<pre>node server.mjs --host $hostOnly --selftest</pre>
+<div class="muted">能打印出设备型号和权限自检,说明链路是通的。</div>
+
+<h2>可以说什么</h2>
+<pre>看一下手机上现在是什么页面
+打开设置,找到电池,告诉我当前电量
+把那个「跳过」按钮点掉
+把这个列表从头到尾读一遍</pre>
+
+<h2>18 个工具</h2>
+<div class="muted">
+  phone_status · phone_screenshot · phone_uitree · phone_locate · phone_tap ·
+  phone_swipe · phone_swipe_measure · phone_text · phone_key · phone_find_text ·
+  phone_ocr · phone_sweep · phone_sequence · phone_incidents · phone_launch ·
+  phone_apps · phone_find_image · phone_raw
+</div>
+
+<div class="card" style="margin-top:24px">
+  <b>关于这个开关</b>
+  <div class="muted" style="margin-top:6px">
+    关闭时本页与所有下载都会返回 403。控制台和已有脚本不受影响 ——
+    被关掉的是「把配置好的桥接直接交给局域网里任何一台机器」这件事。
+  </div>
+</div>
+
+</div></body></html>
+""".trimIndent()
+    }
+
+    private fun writeHtml(out: BufferedOutputStream, html: String) {
+        val bytes = html.toByteArray(Charsets.UTF_8)
+        val header = buildString {
+            append("HTTP/1.1 200 OK\r\n")
+            append("Content-Type: text/html; charset=utf-8\r\n")
+            append("Content-Length: ").append(bytes.size).append("\r\n")
+            append("Cache-Control: no-store\r\n")
+            append("Connection: close\r\n\r\n")
+        }
+        out.write(header.toByteArray(Charsets.UTF_8))
+        out.write(bytes)
+        out.flush()
+    }
+
+    private fun writeJson(out: BufferedOutputStream, status: Int, body: JSONObject) {
+        val bytes = body.toString().toByteArray(Charsets.UTF_8)
+        val reason = if (status == 200) "OK" else "Forbidden"
+        val header = buildString {
+            append("HTTP/1.1 ").append(status).append(' ').append(reason).append("\r\n")
+            append("Content-Type: application/json; charset=utf-8\r\n")
+            append("Content-Length: ").append(bytes.size).append("\r\n")
+            append("Cache-Control: no-store\r\n")
+            append("Connection: close\r\n\r\n")
+        }
+        out.write(header.toByteArray(Charsets.UTF_8))
+        out.write(bytes)
+        out.flush()
+    }
 
     private fun serveAsset(out: BufferedOutputStream, path: String) {
         val name = when (path) {

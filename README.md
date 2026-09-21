@@ -58,8 +58,10 @@ http://<手机IP>:7913/
 - 点击 / 双击 / 长按 / 甩动 / 缩放 / 输入 / 系统按键 / 音量 / 亮度 / 应用管理
 
 ### 接入
-- **浏览器调试台**:七个 Tab,无构建步骤,同一局域网打开即用
-- **MCP Server**:18 个工具,**零依赖**,Claude Code / Cursor / Codex / Windsurf 都能接
+- **浏览器调试台**:八个 Tab,无构建步骤,同一局域网打开即用
+- **MCP Server**:18 个工具,**零依赖**。在 App 里打开「MCP 服务」开关后,
+  **局域网任何一台电脑只要一个浏览器**就能下载桥接文件、拿到填好的配置,
+  接入 Claude Code / Cursor / Codex / Windsurf
 - **DSH 插件**:让 DeepSeek Harness 直接驱动手机
 
 ### 自动跳过广告

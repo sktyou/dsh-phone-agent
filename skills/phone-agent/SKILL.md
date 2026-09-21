@@ -159,12 +159,52 @@ description: 通过 DSH Phone Agent App 在局域网内操控 Android 手机—�
 
 ## MCP:让任何 AI IDE 接入
 
-```bash
-node pc/mcp-server/index.mjs --host <手机IP>
+**先在手机上打开开关**:DSH Phone Agent 首页 → **MCP 服务** → 开关。
+关闭时所有 MCP 端点返回 **403**(控制台和已有脚本不受影响)。
+
+**打开后,同一局域网的任何电脑只需要一个浏览器:**
+
+```
+http://<手机IP>:7913/mcp/          ← 帮助页(含按当前 IP 填好的配置)
+http://<手机IP>:7913/mcp/server.mjs ← 下载桥接文件
+http://<手机IP>:7913/mcp/test.mjs   ← 下载自检脚本
+http://<手机IP>:7913/mcp/README.md  ← 下载说明
+http://<手机IP>:7913/mcp/config.json ← JSON 配置片段
 ```
 
-**18 个工具,零依赖**,Claude Code / Cursor / Codex / Windsurf 都能接。截图返回真正的
-`image` block,模型直接看得到画面。配置见 `pc/mcp-server/README.md`。
+**三步接入:**
+
+```powershell
+# 1. 从手机下载 server.mjs 到任意目录,例如 D:\phone-mcp\
+# 2. 先自检 —— 能打印设备信息就说明链路通
+node D:\phone-mcp\server.mjs --host <手机IP> --selftest
+
+# 3. 把配置加进 IDE
+```
+
+```json
+{
+  "mcpServers": {
+    "phone": {
+      "command": "node",
+      "args": ["D:/phone-mcp/server.mjs", "--host", "<手机IP>"]
+    }
+  }
+}
+```
+
+**Codex**(`~/.codex/config.toml`):
+
+```toml
+[mcp_servers.phone]
+command = "node"
+args = ["D:/phone-mcp/server.mjs", "--host", "<手机IP>"]
+```
+
+**18 个工具,零依赖**。截图返回真正的 `image` block,模型直接看得到画面。
+
+> 下载的 `test-mcp.mjs` 和 `server.mjs` **放在同一目录**即可直接运行 ——
+> 脚本对两种布局(仓库内 / 下载后)都做了适配。
 
 ## ⚠️ IP 会变,而连错 IP 的现象极具误导性
 
