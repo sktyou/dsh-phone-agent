@@ -52,6 +52,7 @@ description: 通过 DSH Phone Agent App 在局域网内操控 Android 手机—�
 ### 找
 | 命令 | 作用 |
 |---|---|
+| `locate` | **定位链**:viewId → text → 包含 → desc → OCR → 颜色,自动尝试并报告用了哪种 |
 | `find` | 按选择器找控件(`viewId`/`text`/`desc`/`cls`/状态) |
 | `findtext` | **按文字找控件**,融合树 + OCR,可解析到可点父节点 |
 | `findcolor` | 单点找色(按簇返回) |
@@ -62,9 +63,10 @@ description: 通过 DSH Phone Agent App 在局域网内操控 Android 手机—�
 ### 做
 | 命令 | 作用 |
 |---|---|
-| `tap` / `doubletap` / `longpress` | 点击(带落点散布) |
+| `tap` / `doubletap` / `longpress` | 点击(**带执行前安全检查**) |
 | `swipe` | 滑动(**到达后自动刹车**,精准) |
 | `swipemeasure` | 滑动 + **测量真实位移** |
+| **`sequence`** | **动作连发**,多步一次调用、不做网络往返 |
 | `flick` / `pinch` / `scroll` | 甩动 / 缩放 / 滚容器 |
 | `text` / `send` / `delete` / `clear` | 输入 |
 | `key` | HOME / BACK / RECENTS / NOTIFICATIONS / LOCK / SCREENSHOT 等 |
@@ -72,10 +74,108 @@ description: 通过 DSH Phone Agent App 在局域网内操控 Android 手机—�
 | `launch` / `stopapp` / `apps` | 应用 |
 | `clipboard` / `deeplink` / `waitstable` / `wait` | 其它 |
 
-### 工具
+### 诊断
 | 命令 | 作用 |
 |---|---|
+| `incidents` | **未解决的执行事故** —— 失败动作会开启,成功才关闭 |
 | `skill` | 返回本文档(方便复制给 Agent) |
+
+## 三个值得优先用的命令
+
+### `locate` —— 别猜坐标,也别猜该用哪个查找命令
+
+```json
+{"cmd":"locate","target":"登录"}
+→ {"found":true,"strategy":"textContains","confidence":0.85,
+   "center":[540,1204],
+   "attempts":[{"strategy":"viewId","ok":false,"reason":"未命中"},
+               {"strategy":"text","ok":false,"reason":"未命中"},
+               {"strategy":"textContains","ok":true}]}
+```
+
+**传一个词就行**,内部依次试 6 种策略。`confidence` 告诉你该不该信:
+
+| 策略 | 置信度 |
+|---|---|
+| `viewId` | 0.98 |
+| `text` | 0.95 |
+| `textContains` / `desc` | 0.85 |
+| `ocr` | 0.7 |
+| `color` | **0.5** ← 命中后最好再验证一次 |
+
+### `sequence` —— 处理会消失的瞬时控件
+
+```json
+{"cmd":"sequence","steps":[
+  {"action":"tap","x":540,"y":1200},
+  {"action":"wait","ms":300},
+  {"action":"tap","x":540,"y":1400}]}
+```
+
+**实测比分开调用快 2.9 倍**(3 次 tap:970ms → 333ms)。省下的是**每次 212ms 的
+网络往返**,所以命令本身越快,收益越明显。
+
+**用于** toast、一秒钟后淡出的控制栏、自动关闭的弹窗 —— 这些 UI 一步一次往返会输掉竞速。
+
+`stopOnError` 默认 `true`,失败即停并返回已执行步数。
+
+### `incidents` —— 知道有没有留下未完成的事
+
+```json
+{"cmd":"incidents"}
+→ {"openCount":1,"open":[{"action":"tap","reason":"...不可点...","attempts":1}],
+   "resolvedCount":0}
+```
+
+**动作失败会开启一条事故记录**,同类动作成功时**自动关闭**(实测闭环)。重复失败**合并计数**。
+
+**用途**:脚本跑完问一句,就能发现没关掉的弹窗、没通过的权限提示。
+
+## 执行前安全检查(Safety Net)
+
+**`tap` / `longpress` / `doubletap` 默认检查目标位置有什么**:
+
+```json
+{"cmd":"tap","x":540,"y":26}
+→ {"completed":true,"safety":{
+     "code":"not-clickable",
+     "hint":"(540,26) 处的节点及其 5 层祖先都不可点 —— 点击不会触发任何东西",
+     "hit":{"cls":"View","bounds":[0,0,1080,95]}}}
+```
+
+| code | 含义 |
+|---|---|
+| `ok` | 命中可点节点 |
+| `scrollable` | 可滚动容器,拖动有效但点击无效 |
+| `not-clickable` | 该处及 5 层祖先都不可点 |
+| `empty` | 那里什么都没有 |
+| `no-root` | 拿不到节点树 |
+
+**默认只报告不拦截** —— canvas / WebView / 游戏表面本来就没有无障碍节点。
+加 **`abortOnUnsafe: true`** 才硬停(此时 `aborted:true`,手势不发出去)。
+
+**为什么需要**:点击落在空白处**不会报错** —— 手势被接受、框架回 success、脚本继续跑。
+**这是自动化里最糟的失败模式,因为它是隐藏的。**
+
+## MCP:让任何 AI IDE 接入
+
+```bash
+node pc/mcp-server/index.mjs --host <手机IP>
+```
+
+**18 个工具,零依赖**,Claude Code / Cursor / Codex / Windsurf 都能接。截图返回真正的
+`image` block,模型直接看得到画面。配置见 `pc/mcp-server/README.md`。
+
+## ⚠️ IP 会变,而连错 IP 的现象极具误导性
+
+手机 IP 变了之后,连**旧 IP** 会表现为:
+
+- `ping` **通**(那个 IP 上有别的设备回 ARP)
+- **TCP 永远建不了连接**(超时,而不是"连接被拒绝")
+
+**看起来像 App 挂了或者死锁了**,实际只是连错了地址 —— 我为此排查了很久。
+
+**权威来源是 App 首页显示的地址**。PC 桥、MCP 配置里缓存的 IP 都会静默失效。
 
 ## 七个测试台 Tab
 

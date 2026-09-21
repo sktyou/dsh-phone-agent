@@ -265,6 +265,12 @@ class ControlServer(
             "perms" -> return permissions(req)
             "skill" -> return skillDoc(req)
             "adrule" -> return adRule(req)
+            "locate" -> return locate(requireService(), req)
+            "sequence" -> return sequence(requireService(), req)
+            "incidents" -> {
+                if (req.optBoolean("clear", false)) IncidentLog.clear()
+                return IncidentLog.snapshot()
+            }
         }
 
         if (service == null) {
@@ -1319,11 +1325,40 @@ class ControlServer(
         lastTapAt.set(System.currentTimeMillis())
     }
 
+    /**
+     * Run the pre-execution safety check when the caller has not opted out.
+     *
+     * Returns null when disabled. The verdict is advisory by default: it rides along
+     * in the reply so a caller can see it landed on nothing, but the gesture still
+     * goes out — plenty of legitimate targets (canvas, WebView, game surfaces) have no
+     * accessibility node. `abortOnUnsafe` flips that to a hard stop for callers that
+     * would rather not act blindly.
+     */
+    private fun safetyFor(
+        service: AgentAccessibilityService,
+        req: JSONObject,
+        x: Float,
+        y: Float,
+    ): SafetyNet.Verdict? {
+        if (!req.optBoolean("safetyNet", true)) return null
+        return runCatching { SafetyNet.check(service, x.toInt(), y.toInt()) }.getOrNull()
+    }
+
     private fun tap(service: AgentAccessibilityService, req: JSONObject): JSONObject {
         val x = req.getDouble("x").toFloat()
         val y = req.getDouble("y").toFloat()
-        throttleTap(req)
         val human = req.optBoolean("human", true)
+        val safety = safetyFor(service, req, x, y)
+
+        if (safety != null && !safety.ok && req.optBoolean("abortOnUnsafe", false)) {
+            IncidentLog.record("tap", "$x,$y", safety.hint)
+            return JSONObject()
+                .put("completed", false)
+                .put("aborted", true)
+                .put("safety", SafetyNet.toJson(safety))
+        }
+
+        throttleTap(req)
         val completed = dispatchWithRetry(service, req) {
             if (human) {
                 GestureEngine.tap(x, y)
@@ -1331,24 +1366,47 @@ class ControlServer(
                 mechanicalLine(x, y, x + 0.01f, y + 0.01f, 60L)
             }
         }
-        return JSONObject().put("completed", completed).put("x", x).put("y", y).put("human", human)
+
+        if (completed) IncidentLog.resolve("tap")
+        else IncidentLog.record("tap", "$x,$y", "手势被系统取消")
+
+        return JSONObject()
+            .put("completed", completed)
+            .put("x", x)
+            .put("y", y)
+            .put("human", human)
+            .apply { safety?.let { put("safety", SafetyNet.toJson(it)) } }
     }
 
-    private fun longPress(service: AgentAccessibilityService, req: JSONObject): JSONObject {        val x = req.getDouble("x").toFloat()
+    private fun longPress(service: AgentAccessibilityService, req: JSONObject): JSONObject {
+        val x = req.getDouble("x").toFloat()
         val y = req.getDouble("y").toFloat()
         val hold = req.optLong("holdMs", 650L).coerceIn(300L, 5_000L)
+        val safety = safetyFor(service, req, x, y)
         val completed = dispatchWithRetry(service, req, timeoutMs = hold + 6_000L) {
             GestureEngine.longPress(x, y, hold)
         }
-        return JSONObject().put("completed", completed).put("holdMs", hold)
+        if (completed) IncidentLog.resolve("longpress")
+        else IncidentLog.record("longpress", "$x,$y", "手势被系统取消")
+        return JSONObject()
+            .put("completed", completed)
+            .put("holdMs", hold)
+            .apply { safety?.let { put("safety", SafetyNet.toJson(it)) } }
     }
 
     private fun doubleTap(service: AgentAccessibilityService, req: JSONObject): JSONObject {
         val x = req.getDouble("x").toFloat()
         val y = req.getDouble("y").toFloat()
+        val safety = safetyFor(service, req, x, y)
         throttleTap(req)
         val completed = dispatchWithRetry(service, req) { GestureEngine.doubleTap(x, y) }
-        return JSONObject().put("completed", completed).put("x", x).put("y", y)
+        if (completed) IncidentLog.resolve("doubletap")
+        else IncidentLog.record("doubletap", "$x,$y", "手势被系统取消")
+        return JSONObject()
+            .put("completed", completed)
+            .put("x", x)
+            .put("y", y)
+            .apply { safety?.let { put("safety", SafetyNet.toJson(it)) } }
     }
 
     private fun swipe(service: AgentAccessibilityService, req: JSONObject): JSONObject {
@@ -1996,6 +2054,154 @@ class ControlServer(
         }
 
         throw IllegalArgumentException("unknown op: $op")
+    }
+
+    /**
+     * The bound accessibility service, or a clear error.
+     *
+     * Commands that need to touch the screen cannot run without it, and the failure
+     * should say so rather than surfacing later as a null dereference.
+     */
+    private fun requireService(): AgentAccessibilityService =
+        AgentAccessibilityService.instance
+            ?: throw IllegalStateException("无障碍服务未连接,请先在 App 里打开")
+
+    /**
+     * Locate something by any available means and say which one worked.
+     *
+     * The caller supplies a word, not a mechanism. Trying the strategies in order and
+     * reporting the winner means the same call keeps working as an app changes from
+     * resource ids to Compose to a drawn canvas, instead of failing when the caller's
+     * guessed mechanism stops applying.
+     */
+    private fun locate(service: AgentAccessibilityService, req: JSONObject): JSONObject {
+        val target = req.getString("target")
+        val strategies = req.optJSONArray("strategies")?.let { arr ->
+            (0 until arr.length()).map { arr.getString(it) }
+        } ?: Locator.STRATEGIES
+        val region = req.optJSONArray("region")?.let { arr ->
+            if (arr.length() < 4) null
+            else Rect(arr.getInt(0), arr.getInt(1), arr.getInt(2), arr.getInt(3))
+        }
+        val tolerance = req.optInt("tolerance", 16)
+
+        return Locator.locate(service, target, strategies, region) { strategy ->
+            when (strategy) {
+                "ocr" -> runCatching {
+                    val r = findText(service, JSONObject()
+                        .put("text", target)
+                        .put("mode", "contains")
+                        .put("source", "ocr")
+                        .put("tappable", true))
+                    if (r.optInt("count") <= 0) null else {
+                        val m = r.getJSONArray("matches").getJSONObject(0)
+                        val c = m.optJSONObject("tapTarget")?.optJSONArray("center")
+                            ?: m.optJSONArray("center")
+                        JSONObject()
+                            .put("ok", true)
+                            .put("node", JSONObject().put("text", m.optString("text")))
+                            .put("center", c)
+                            .put("bounds", m.optJSONArray("bounds"))
+                    }
+                }.getOrNull()
+
+                "color" -> runCatching {
+                    if (!target.startsWith("#")) null else {
+                        val r = findColor(service, JSONObject()
+                            .put("color", target)
+                            .put("tolerance", tolerance)
+                            .put("max", 5))
+                        val clusters = r.optJSONArray("clusters")
+                        if (clusters == null || clusters.length() == 0) null else {
+                            val first = clusters.getJSONObject(0)
+                            JSONObject()
+                                .put("ok", true)
+                                .put("node", JSONObject().put("pixels", first.optInt("pixels")))
+                                .put("center", first.optJSONArray("center"))
+                                .put("bounds", first.optJSONArray("bounds"))
+                        }
+                    }
+                }.getOrNull()
+
+                else -> null
+            }
+        }
+    }
+
+    /**
+     * Execute a list of actions without a round trip between them.
+     *
+     * Some UI is only briefly real: a toast, a control bar that fades after a second,
+     * a dialog that auto-dismisses. Sending one action per network turn loses that
+     * race even when every individual step is fast. A sequence runs the steps
+     * back to back on the phone, so the gap is microseconds instead of a round trip.
+     *
+     * Steps are ordinary commands, dispatched through the same path as a top-level
+     * call — a sequence is a batching mechanism, not a second command language.
+     */
+    private fun sequence(service: AgentAccessibilityService, req: JSONObject): JSONObject {
+        val steps = req.optJSONArray("steps")
+            ?: throw IllegalArgumentException("steps must be an array")
+        if (steps.length() == 0) throw IllegalArgumentException("steps must not be empty")
+        if (steps.length() > 50) throw IllegalArgumentException("at most 50 steps")
+        val stopOnError = req.optBoolean("stopOnError", true)
+
+        val results = JSONArray()
+        var executed = 0
+        for (i in 0 until steps.length()) {
+            val step = steps.getJSONObject(i)
+            val action = step.optString("action")
+
+            if (action == "wait") {
+                val ms = step.optLong("ms", 300L).coerceIn(0L, 30_000L)
+                runCatching { Thread.sleep(ms) }
+                results.put(JSONObject().put("index", i).put("action", "wait").put("ok", true).put("ms", ms))
+                executed++
+                continue
+            }
+            if (action.isEmpty()) {
+                results.put(JSONObject().put("index", i).put("ok", false).put("error", "action 为空"))
+                if (stopOnError) break
+                continue
+            }
+
+            val sub = JSONObject(step.toString())
+            sub.put("id", "seq-$i")
+            // Steps name their command `action`; the dispatcher reads `cmd`. Without
+            // this the sub-command arrives with an empty cmd and every step fails with
+            // no message — the failure looks like the command was never run.
+            sub.put("cmd", action)
+
+            // Call execute() directly rather than re-entering process(). The outer
+            // call already holds opLock, and process() would increment inFlight once
+            // per step — so a five-step sequence would consume the whole concurrency
+            // budget by itself and start rejecting unrelated callers as "busy".
+            val reply = runCatching {
+                JSONObject().put("ok", true).put("data", execute(sub))
+            }.getOrElse { e ->
+                JSONObject().put("ok", false).put("error", e.message ?: e.toString())
+            }
+            executed++
+            results.put(
+                JSONObject()
+                    .put("index", i)
+                    .put("action", action)
+                    .put("ok", reply.optBoolean("ok"))
+                    .put("error", if (reply.optBoolean("ok")) JSONObject.NULL else reply.opt("error"))
+                    .put("data", if (reply.optBoolean("ok")) reply.opt("data") else JSONObject.NULL),
+            )
+            if (!reply.optBoolean("ok") && stopOnError) break
+        }
+
+        val okCount = (0 until results.length())
+            .count { results.getJSONObject(it).optBoolean("ok") }
+        return JSONObject()
+            .put("completed", okCount == results.length() && results.length() == steps.length())
+            .put("executed", executed)
+            .put("total", steps.length())
+            .put("okCount", okCount)
+            .put("stopOnError", stopOnError)
+            .put("results", results)
     }
 
     private fun encodeImage(bitmap: Bitmap, format: String, quality: Int): Pair<String, String> {
