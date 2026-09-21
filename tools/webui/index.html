@@ -214,6 +214,7 @@
   <button data-tab="ocr">识字</button>
   <button data-tab="node">节点</button>
   <button data-tab="device">设备</button>
+  <button data-tab="mcp">MCP</button>
   <button data-tab="skill">SKILL</button>
 </nav>
 
@@ -552,6 +553,52 @@
             <input type="text" id="inpLaunch" class="w100" placeholder="包名">
             <button id="btnLaunch">启动</button>
           </div>
+        </div>
+      </div>
+
+      <!-- ============ MCP ============ -->
+      <div class="tabpane" id="tab-mcp">
+        <div class="card">
+          <h3>MCP Server <span class="sub">让任何 AI IDE 驱动这台手机</span></h3>
+          <div class="hint" style="margin-bottom:10px">
+            跑在<b>电脑</b>上的零依赖 Node 进程,把这台手机暴露成 MCP 工具。
+            Claude Code / Cursor / Codex / Windsurf 都能接。
+          </div>
+          <div class="row">
+            <label>启动</label>
+            <input type="text" id="mcpCmd" readonly style="flex:1;font-family:var(--mono);font-size:11px">
+            <button id="btnMcpCopyCmd">复制</button>
+          </div>
+          <div class="row">
+            <label>手机地址</label>
+            <input type="text" id="mcpHost" class="w100" readonly>
+            <span class="hint" id="mcpStatus"></span>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3>客户端配置 <span class="sub">复制到你的 IDE</span></h3>
+          <div class="row">
+            <select id="selMcpClient" style="flex:1">
+              <option value="claude">Claude Code / Cursor / Windsurf (JSON)</option>
+              <option value="codex">Codex (TOML)</option>
+            </select>
+            <button id="btnMcpCopyCfg" class="primary">复制配置</button>
+          </div>
+          <pre id="mcpConfig" style="max-height:200px"></pre>
+        </div>
+
+        <div class="card">
+          <h3>可用工具 <span class="sub" id="mcpToolCount"></span></h3>
+          <div id="mcpTools" class="kv"></div>
+        </div>
+
+        <div class="card">
+          <h3>在电脑上自检 <span class="sub">不接 IDE 也能验证</span></h3>
+          <div class="row">
+            <button id="btnMcpTest" class="primary">生成测试命令</button>
+          </div>
+          <pre id="mcpTestOut" class="empty">点上面的按钮,得到一条可直接在电脑上跑的验证命令</pre>
         </div>
       </div>
 
@@ -1599,6 +1646,86 @@ $("#btnLaunch").addEventListener("click", async () => {
   await rpc({ cmd: "launch", package: pkg });
 });
 
+/* ---------------- MCP tab ---------------- */
+/**
+ * The tools the MCP server exposes, mirrored here for display.
+ *
+ * The canonical list lives in pc/mcp-server/index.mjs, which runs on the PC — this
+ * page cannot read it, so the two are maintained in parallel. The count reported to
+ * the user is checked against the server's own `tools/list` in tools/test-mcp.mjs,
+ * which is what keeps a drift from going unnoticed.
+ */
+const MCP_TOOLS = [
+  ["phone_status", "设备状态 + 12 项权限自检(连接后先调)"],
+  ["phone_screenshot", "截图,返回图片让模型直接看到"],
+  ["phone_uitree", "界面节点树"],
+  ["phone_locate", "定位链:viewId → text → 包含 → desc → OCR → 颜色"],
+  ["phone_tap", "点击(带执行前安全检查)"],
+  ["phone_swipe", "滑动(末尾自动刹车,落点准)"],
+  ["phone_swipe_measure", "滑动 + 测量内容实际滚了多远"],
+  ["phone_text", "输入文本"],
+  ["phone_key", "系统键 HOME / BACK / RECENTS / LOCK"],
+  ["phone_find_text", "按文字找控件(树 + OCR 融合)"],
+  ["phone_ocr", "本地中文 OCR"],
+  ["phone_sweep", "滚动识别,一次读完整个长列表"],
+  ["phone_sequence", "动作连发,处理会消失的瞬时控件"],
+  ["phone_incidents", "查询未解决的执行事故"],
+  ["phone_launch", "启动应用"],
+  ["phone_apps", "列出已安装应用"],
+  ["phone_find_image", "模板找图"],
+  ["phone_raw", "执行任意命令(兜底)"],
+];
+
+function mcpServerPath() {
+  // This page is served from the phone; the server file lives on the PC. The path is
+  // shown as a placeholder for the user to correct, not as a working default.
+  return "E:/DSH-Phone-Agent/pc/mcp-server/index.mjs";
+}
+
+function renderMcp() {
+  const host = location.hostname;
+  $("#mcpHost").value = `${host}:7912`;
+  $("#mcpStatus").textContent = "控制台来自这台手机;" + "MCP 进程在电脑上";
+
+  const cmd = `node "${mcpServerPath()}" --host ${host}`;
+  $("#mcpCmd").value = cmd;
+
+  const path = mcpServerPath();
+  const cfg = $("#selMcpClient").value === "codex"
+    ? `[mcp_servers.phone]\ncommand = "node"\nargs = ["${path}", "--host", "${host}"]`
+    : JSON.stringify(
+        { mcpServers: { phone: { command: "node", args: [path, "--host", host] } } },
+        null, 2,
+      );
+  $("#mcpConfig").textContent = cfg;
+
+  $("#mcpToolCount").textContent = `${MCP_TOOLS.length} 个`;
+  $("#mcpTools").innerHTML = MCP_TOOLS
+    .map(([name, desc]) =>
+      `<div style="padding:3px 0"><b style="color:var(--cyan);font-family:var(--mono)">${name}</b>` +
+      `<span style="color:var(--muted)"> — ${escapeHtml(desc)}</span></div>`)
+    .join("");
+
+  $("#mcpTestOut").textContent =
+    `# 在电脑上运行,列出工具:\n` +
+    `echo '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | node "${path}" --host ${host}\n\n` +
+    `# 或者跑完整测试(18 项):\n` +
+    `node "E:/DSH-Phone-Agent/tools/test-mcp.mjs" --host ${host}`;
+}
+
+$("#selMcpClient").addEventListener("change", renderMcp);
+$("#btnMcpTest").addEventListener("click", renderMcp);
+
+function copyText(value, done) {
+  navigator.clipboard?.writeText(value).then(
+    () => { $("#mcpStatus").textContent = done; setTimeout(renderMcp, 1500); },
+    () => { $("#mcpStatus").textContent = "复制失败,请手动选择"; },
+  );
+}
+
+$("#btnMcpCopyCmd").addEventListener("click", () => copyText($("#mcpCmd").value, "启动命令已复制"));
+$("#btnMcpCopyCfg").addEventListener("click", () => copyText($("#mcpConfig").textContent, "配置已复制"));
+
 /* ---------------- skill tab ---------------- */
 $("#btnSkillLoad").addEventListener("click", async () => {
   $("#skillText").textContent = "读取中…";
@@ -1935,6 +2062,7 @@ function switchTab(name) {
   // Device state and permissions are what this tab exists to show, so fetch them on
   // entry rather than making the user press a button to see the thing they came for.
   if (name === "device") { loadDevice(); loadPerms(); }
+  if (name === "mcp") renderMcp();
 }
 document.querySelectorAll("nav.tabs button").forEach((b) => {
   b.addEventListener("click", () => switchTab(b.dataset.tab));
