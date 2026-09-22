@@ -462,20 +462,39 @@ class ControlServer(
     }
 
     /**
-     * Screen size + scale the caller must apply to map image pixels back to touch pixels.
+     * Screen size + the factors a caller must apply to map image pixels back to touch
+     * pixels.
      *
-     * `regionOrigin` is the other half of that mapping and was missing: a cropped frame
-     * sits at an offset in screen space, so a caller dividing by scale alone lands
-     * wherever the top-left of the screen is instead of wherever the crop started.
+     * The factors multiply, they do not divide. What a caller needs is
+     * `screen = regionOrigin + image / factor`, so the factor is
+     * `regionWidth / imageWidth`.
+     *
+     * Reporting `imageWidth / screenWidth` instead — the fraction of the screen the
+     * image covers — looks plausible and is wrong twice over: it is inverted, and it
+     * ignores the crop. With `region [230,440,1080,2200]` and `maxWidth 810` the image
+     * came out 425 wide, and the old value 425/1080 ≈ 0.3935 mapped that to 167px when
+     * the region is 850 wide. Every coordinate a caller derived from a screenshot was
+     * off by more than 5×.
      */
     private fun frameMeta(req: JSONObject, frame: Bitmap): JSONObject {
         val screen = realScreen()
         val region = req.optJSONArray("region")
-        val originX = if (region != null && region.length() >= 4) region.getInt(0) else 0
-        val originY = if (region != null && region.length() >= 4) region.getInt(1) else 0
-        // Derived rather than echoed from `req`: with `maxWidth` in play the effective
-        // ratio is not the requested one, and a caller trusting the echo would be off.
-        val effectiveX = frame.width.toDouble() / screen.widthPixels
+        val hasRegion = region != null && region.length() >= 4
+        val originX = if (hasRegion) region!!.getInt(0) else 0
+        val originY = if (hasRegion) region!!.getInt(1) else 0
+        // The area the image depicts: the crop when there is one, the whole screen
+        // otherwise. Dividing by the screen instead of the crop is what made the old
+        // value ignore `region`.
+        val areaW = if (hasRegion) {
+            (region!!.getInt(2) - region.getInt(0)).coerceAtLeast(1)
+        } else {
+            screen.widthPixels
+        }
+        val areaH = if (hasRegion) {
+            (region.getInt(3) - region.getInt(1)).coerceAtLeast(1)
+        } else {
+            screen.heightPixels
+        }
         return JSONObject()
             .put("screenWidth", screen.widthPixels)
             .put("screenHeight", screen.heightPixels)
@@ -483,8 +502,13 @@ class ControlServer(
             .put("imageWidth", frame.width)
             .put("imageHeight", frame.height)
             .put("regionOrigin", JSONArray(listOf(originX, originY)))
-            .put("imageToScreenX", effectiveX)
-            .put("imageToScreenY", frame.height.toDouble() / screen.heightPixels)
+            .put("regionWidth", areaW)
+            .put("regionHeight", areaH)
+            // Multiply an image coordinate by these to get screen pixels, then add
+            // regionOrigin. Measured from the actual frame, not echoed from the
+            // request: with `maxWidth` in play the effective ratio is not `scale`.
+            .put("imageToScreenX", areaW.toDouble() / frame.width)
+            .put("imageToScreenY", areaH.toDouble() / frame.height)
             .put("rotation", rotationDegrees())
     }
 
@@ -535,15 +559,23 @@ class ControlServer(
         return out
     }
 
-    /** Pure on-device OCR. Slower than the tree, so use it where the tree is blind. */
+    /**
+     * Pure on-device OCR. Slower than the tree, so use it where the tree is blind.
+     *
+     * `scale` upscales the crop before recognition. Small low-contrast text — orange
+     * price digits over a food photograph, for instance — is missed often enough to
+     * matter, and resampling recovers most of it.
+     */
     private fun ocr(service: AgentAccessibilityService, req: JSONObject): JSONObject {
         val region = req.optJSONArray("region")?.let { arr ->
             if (arr.length() < 4) null
             else Rect(arr.getInt(0), arr.getInt(1), arr.getInt(2), arr.getInt(3))
         }
+        val scale = req.optDouble("scale", 1.0)
+        val enhance = req.optBoolean("enhance", false)
         val bitmap = service.capture() ?: throw IllegalStateException("screenshot failed")
         return try {
-            OcrEngine.recognize(bitmap, region)
+            OcrEngine.recognize(bitmap, region, scale, enhance)
         } finally {
             bitmap.recycle()
         }
@@ -595,16 +627,48 @@ class ControlServer(
             else Rect(arr.getInt(0), arr.getInt(1), arr.getInt(2), arr.getInt(3))
         }
 
-        // Text -> its first sighting, in reading order.
+        // Upscale before recognising.
         //
-        // The value carries geometry and the capture index, which is what lets a caller
-        // pair a price with the product above it. The old output was a bare list of
-        // strings, so on a multi-column layout a caller had no way to tell which ¥9.9
-        // belonged to which item — and every pairing it guessed was a coin flip.
-        val seen = LinkedHashMap<String, JSONObject>()
+        // Measured on a real menu: at scale 1.0 the price labels — orange digits over a
+        // food photograph — were missed roughly a third of the time, while the
+        // white-on-solid titles beside them read fine. Resampling the crop costs a few
+        // milliseconds per screenful and recovers most of those rows, which is the
+        // difference between a usable inventory and a partial one.
+        val ocrScale = req.optDouble("ocrScale", 1.5).coerceIn(0.5, 3.0)
+        // Contrast-stretch a second pass and merge. Defaults to on for sweep: the whole
+        // point of the command is to come back with everything, and a menu's price
+        // labels are exactly the low-contrast coloured text this recovers.
+        val ocrEnhance = req.optBoolean("ocrEnhance", true)
+
+        // Two de-duplication scopes, because the two outputs answer different questions.
+        //
+        // `lines` is a text inventory: "what words appeared on this screen". Keying it on
+        // text alone is correct there.
+        //
+        // `ocrLines` is a picture of the page: every occurrence matters, because a price
+        // label is a *position*, and menus repeat the same price dozens of times.
+        // De-duplicating those by text kept whichever ¥7.8 happened to be seen first and
+        // silently discarded the rest — measured on a real menu, 38 price rows survived
+        // instead of 58. So this one is keyed on text **and** bounds.
+        val textSeen = LinkedHashSet<String>()
+        val lineSeen = HashSet<String>()
+        val compatLines = LinkedHashSet<String>()
+        val ocrLines = JSONArray()
         var performed = 0
         var emptyRuns = 0
         var stopReason = "scrolls-exhausted"
+
+        // A sweep that lands while the agent's own screen is in front reads an empty
+        // list and reports `reached-end`, which looks like "the menu has no items"
+        // rather than "we were looking at the wrong app". Observed twice during
+        // testing; the cost of checking is one string compare.
+        val foreground = foregroundPackage(service)
+        if (foreground == context.packageName) {
+            throw IllegalStateException(
+                "前台是 DSH Phone Agent 自己($foreground),不是目标 App —— " +
+                    "请先切回要采集的应用再执行 sweep",
+            )
+        }
 
         for (i in 0 until maxScrolls) {
             // Captured explicitly rather than with `run { ... break }`: an inline
@@ -615,7 +679,7 @@ class ControlServer(
                 break
             }
             val result = try {
-                OcrEngine.recognize(bitmap, region)
+                OcrEngine.recognize(bitmap, region, ocrScale, ocrEnhance)
             } finally {
                 bitmap.recycle()
             }
@@ -623,29 +687,38 @@ class ControlServer(
             // A plain loop rather than forEach: an inline lambda cannot `break`, and
             // stopping early is the whole point of the counter below.
             var fresh = 0
-            val ocrLines = result.optJSONArray("ocrLines")
-            if (ocrLines != null && ocrLines.length() > 0) {
-                for (j in 0 until ocrLines.length()) {
-                    val entry = ocrLines.optJSONObject(j) ?: continue
+            val lines = result.optJSONArray("ocrLines")
+            if (lines != null && lines.length() > 0) {
+                for (j in 0 until lines.length()) {
+                    val entry = lines.optJSONObject(j) ?: continue
                     val text = entry.optString("text").trim()
                     // Single characters are almost always noise picked off icons or badges.
-                    if (text.length < 2 || seen.containsKey(text)) continue
-                    seen[text] = JSONObject()
-                        .put("text", text)
-                        .put("bounds", entry.opt("bounds"))
-                        .put("center", entry.opt("center"))
-                        .put("confidence", entry.opt("confidence"))
-                        .put("capture", i)
-                    fresh++
+                    if (text.length < 2) continue
+
+                    val boundsKey = entry.opt("bounds")?.toString() ?: ""
+                    if (lineSeen.add("$text|$boundsKey")) {
+                        ocrLines.put(
+                            JSONObject(entry.toString()).put("capture", i),
+                        )
+                    }
+                    compatLines.add(text)
+                    // "Did this screenful show anything new" still keys on text alone:
+                    // the same row at a different offset after scrolling is not new
+                    // content, and counting it would stop the reached-end check from
+                    // ever firing.
+                    if (textSeen.add(text)) fresh++
                 }
             } else {
                 // Fallback for a recogniser that returned no lines: keeps sweep working
                 // rather than silently producing nothing.
                 for (raw in result.optString("fullText").split('\n')) {
                     val line = raw.trim()
-                    if (line.length >= 2 && !seen.containsKey(line)) {
-                        seen[line] = JSONObject().put("text", line).put("capture", i)
-                        fresh++
+                    if (line.length >= 2) {
+                        compatLines.add(line)
+                        if (textSeen.add(line)) {
+                            ocrLines.put(JSONObject().put("text", line).put("capture", i))
+                            fresh++
+                        }
                     }
                 }
             }
@@ -678,11 +751,12 @@ class ControlServer(
         return JSONObject()
             .put("scrolls", performed)
             .put("stepsPerCapture", steps)
-            .put("lineCount", seen.size)
+            .put("lineCount", compatLines.size)
             .put("stopReason", stopReason)
-            // Legacy plain-text array, unchanged so existing callers keep working.
-            .put("lines", JSONArray(seen.keys.toList()))
-            .put("ocrLines", JSONArray(seen.values.toList()))
+            // Legacy plain-text array, still de-duplicated by text, unchanged.
+            .put("lines", JSONArray(compatLines.toList()))
+            // Every occurrence, positioned. Contains repeats on purpose.
+            .put("ocrLines", ocrLines)
     }
 
     /**

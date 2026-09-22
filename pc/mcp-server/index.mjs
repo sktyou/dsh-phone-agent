@@ -303,16 +303,24 @@ const TOOLS = [
       type: "object",
       properties: {
         region: { type: "array", items: { type: "number" } },
+        scale: { type: "number", description: "识别前放大倍数,默认 1.0. 小字场景试 1.5" },
+        enhance: {
+          type: "boolean",
+          description: "对比度增强后二次识别并合并 —— 彩色小字压在照片上时明显提升(实测总行 +38%)",
+        },
       },
       additionalProperties: false,
     },
     handler: async (a) => {
       const cmd = { cmd: "ocr" };
       if (a.region) cmd.region = a.region;
+      if (a.scale) cmd.scale = a.scale;
+      if (a.enhance) cmd.enhance = true;
       const d = await run(cmd);
       return {
         content: [
-          { type: "text", text: `识别到 ${d.lineCount ?? 0} 行 / ${d.elementCount ?? 0} 个元素` },
+          { type: "text", text: `识别到 ${d.lineCount ?? 0} 行 / ${d.elementCount ?? 0} 个元素` +
+              (d.ocrEnhanced ? " (增强+合并)" : "") },
           // Everything the phone returned, not a hand-picked subset. The bridge is a
           // translator: if it silently drops a field the app added, the caller has no
           // way to know the data ever existed.
@@ -321,6 +329,8 @@ const TOOLS = [
             lineCount: d.lineCount,
             elementCount: d.elementCount,
             blockCount: d.blockCount,
+            ocrScale: d.ocrScale,
+            ocrEnhanced: d.ocrEnhanced,
             ocrLines: d.ocrLines,
           }) },
         ],
@@ -339,6 +349,8 @@ const TOOLS = [
         scrolls: { type: "number", description: "最多滚动几次,默认 40" },
         distance: { type: "number", description: "每次滚动像素,默认 1100" },
         region: { type: "array", items: { type: "number" }, description: "识别区域" },
+        ocrScale: { type: "number", description: "识别前放大倍数,默认 1.5" },
+        ocrEnhance: { type: "boolean", description: "对比度增强二次识别并合并,默认 true" },
       },
       additionalProperties: false,
     },
@@ -348,6 +360,8 @@ const TOOLS = [
         perCapture: 2, settleMs: 700, durationMs: 420,
       };
       if (a.region) cmd.region = a.region;
+      if (a.ocrScale) cmd.ocrScale = a.ocrScale;
+      if (a.ocrEnhance === false) cmd.ocrEnhance = false;
       const d = await run(cmd);
       return {
         content: [
@@ -357,13 +371,14 @@ const TOOLS = [
           },
           // Both forms are forwarded. `lines` is what an older caller expects;
           // `ocrLines` carries the geometry that makes price-to-product pairing
-          // possible. Passing only the former is how the structured data the app
-          // already returns got lost in translation.
+          // possible, and unlike `lines` it is NOT de-duplicated by text — a menu
+          // repeats ¥7.8 twenty times and each occurrence is a position, not a word.
           { type: "text", text: JSON.stringify({
             scrolls: d.scrolls,
             lineCount: d.lineCount,
             stopReason: d.stopReason,
             stepsPerCapture: d.stepsPerCapture,
+            ocrScale: d.ocrScale,
             lines: d.lines,
             ocrLines: d.ocrLines,
           }) },

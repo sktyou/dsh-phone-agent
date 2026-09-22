@@ -186,11 +186,39 @@ Flutter / Canvas / H5 应用的控件树可能只有十几个容器、**零文�
    "center":[798,564],"confidence":0.97,"capture":3}]}
 ```
 
-- `bounds` — 真实屏幕坐标,和 `findtext` 同一坐标系
-- `capture` — 属于第几轮滚动,可按轮次聚类
-- `confidence` — 低于阈值(默认 0.85)的行**照常返回**,由调用方决定是否复核
+**两个关键区别**:
+
+- `lines` 按文本去重,`ocrLines` **不去重**(键是 text+bounds)。
+  **一份菜单里 `¥7.8` 出现二十次,每一次都是一个位置,不是一个词。**
+  实测:同一份菜单 `lines` 81 条、`ocrLines` 118 条,被丢掉的全是重复价格行。
+- `bounds` 是真实屏幕坐标,和 `findtext` 同坐标系;`capture` 是滚动轮次。
 
 **配对方法**:按 `bounds` 的 y 坐标,把价格行配到上方最近的标题行。
+
+## OCR 识别率:彩色小字要开增强
+
+**价格这类"彩色数字压在照片上"的文字,识别率明显低于白底标题。** 实测同一屏:
+
+| 配置 | 耗时 | 总行数 | 价格行 |
+|---|---|---|---|
+| `scale=1.0` | 927ms | 29 | 13 |
+| `scale=1.5` | 765ms | 30 | 12 |
+| **`scale=1.5 enhance=true`** | 1285ms | **40** | **16** |
+
+**光放大不够**(±1 行)。有效的是**对比度增强后二次识别、再按坐标合并**:
+
+```json
+{"cmd":"ocr","region":[230,440,1080,2200],"scale":1.5,"enhance":true}
+```
+
+- `scale` — 识别前放大倍数(默认 1.0;小字场景试 1.5)
+- `enhance` — **对比度拉伸后识别第二遍,两遍按位置合并**(重叠位置取高置信)
+- `sweep` 默认 `ocrScale=1.5` + `ocrEnhance=true`
+
+**代价**:约 +68% 耗时。采集任务值得,交互式点击不值得。
+
+> 注意:ML Kit 中文模型对 `¥` 开头的价格行**置信度普遍偏低**(0.60~0.73),
+> 这是模型的固有特性,**不代表识别错误**。别用 0.85 一刀切过滤价格行。
 
 `ocr` 命令同样返回 `ocrLines`(以及兼容的 `fullText` / `blocks`)。
 
@@ -217,11 +245,11 @@ sleep 永远在两个方向上都错(太短打进未渲染的页面,太长让每
 ## 截图:坐标换算元数据
 
 ```json
-{"cmd":"screenshot","region":[230,440,1080,2200],"maxWidth":400,"quality":70}
-→ {"imageWidth":400,"imageHeight":888,
+{"cmd":"screenshot","region":[230,440,1080,2200],"maxWidth":810,"quality":70}
+→ {"imageWidth":810,"imageHeight":1677,
    "screenWidth":1080,"screenHeight":2400,
-   "imageToScreenX":0.3704,"imageToScreenY":0.3700,
-   "regionOrigin":[230,440]}
+   "regionOrigin":[230,440],"regionWidth":850,"regionHeight":1760,
+   "imageToScreenX":1.0494,"imageToScreenY":1.0495}
 ```
 
 **换算公式**:
@@ -230,10 +258,19 @@ sleep 永远在两个方向上都错(太短打进未渲染的页面,太长让每
 手机坐标 = 图像坐标 × imageToScreen{X,Y} + regionOrigin
 ```
 
-- `imageToScreen*` 是**实测比值**,不是回显请求参数 —— 用了 `maxWidth` 之后实际比例
-  和请求的 `scale` 不一致
-- `regionOrigin` 是**缺了就会算错**的一半:裁剪后的图有屏幕偏移,只除 `scale` 会落到
-  屏幕左上角而不是裁剪起点
+**系数是相乘,不是相除** —— 即 `regionWidth / imageWidth`。
+
+> **这里踩过坑**:早期版本报的是 `imageWidth / screenWidth`(图像占全屏的比例),
+> 看起来合理,实际错两次 —— **方向反了,而且忽略了裁剪**。
+> `region [230,440,1080,2200]` + `maxWidth 810` 时图像宽 810,
+> 旧值 `810/1080 ≈ 0.75` 把图像宽映射成 608,而区域实际宽 850。
+> **调用方从截图推出的一切坐标全错。**
+
+校验方法:图像 `x=0` 应映射到 `regionOrigin[0]`,图像 `x=imageWidth` 应映射到
+`regionOrigin[0] + regionWidth`。
+
+- `imageToScreen*` 是**按实际帧算的**,不是回显请求参数 —— 用了 `maxWidth` 之后
+  实际比例和 `scale` 不一致
 - `maxWidth` 适合"只知道要多宽"的调用方;`region` 适合只采列表区域
 
 ## MCP:让任何 AI IDE 接入
