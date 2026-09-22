@@ -392,7 +392,23 @@ class ControlServer(
             .put("accessibility", service != null)
             .put("clients", clients.get())
             .put("operations", ops.get())
+            // Reported so a client can tell which build it is talking to. An MCP
+            // bridge downloaded months ago still works against a newer app until a
+            // command changes shape, and then it fails in a way that looks like a bug
+            // in the phone rather than a stale file on the PC.
+            .put("appVersion", appVersionName())
+            .put("appVersionCode", appVersionCode())
     }
+
+    private fun appVersionName(): String = runCatching {
+        context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: ""
+    }.getOrDefault("")
+
+    private fun appVersionCode(): Long = runCatching {
+        val info = context.packageManager.getPackageInfo(context.packageName, 0)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) info.longVersionCode
+        else @Suppress("DEPRECATION") info.versionCode.toLong()
+    }.getOrDefault(0L)
 
     /**
      * Apply the caller's `region` and `scale` to a captured frame.

@@ -25,6 +25,8 @@ function argOf(name, fallback) {
 
 const HOST = argOf("host", process.env.DSH_PHONE_HOST || "192.168.12.138");
 const PORT = Number(argOf("port", process.env.DSH_PHONE_PORT || "7912"));
+/** The phone's HTTP console, used for the version hint in --selftest. */
+const HOST_PORT = argOf("http-port", process.env.DSH_PHONE_HTTP_PORT || "7913");
 const TOKEN = argOf("token", process.env.DSH_PHONE_TOKEN || "");
 const CALL_TIMEOUT = Number(argOf("timeout", "120000"));
 
@@ -469,6 +471,10 @@ if (process.argv.includes("--selftest")) {
     line(`  屏幕     ${info.screenWidth}x${info.screenHeight}`);
     line(`  前台     ${info.foregroundPackage || "(无)"}`);
     line(`  无障碍   ${info.accessibility ? "已连接" : "未连接 ← 手机上需要开启"}`);
+    // The app version is how a stale bridge is detected. This file is only a
+    // translator for the phone's API; when a command changes shape it keeps
+    // connecting and starts failing on one call, which reads as a phone bug.
+    line(`  App 版本 ${info.appVersion || "?"} (build ${info.appVersionCode ?? "?"})`);
     const perms = await run({ cmd: "perms" });
     line(`  权限     ${perms.okCount}/${perms.count} 项正常`);
     for (const item of (perms.items ?? []).filter((i) => !i.ok)) {
@@ -479,6 +485,8 @@ if (process.argv.includes("--selftest")) {
       { mcpServers: { phone: { command: "node", args: ["<此文件路径>", "--host", HOST] } } },
       null, 2,
     ));
+    line(`\n提示: 手机 App 更新后请重新下载本文件 —— 打开手机上的`);
+    line(`      http://${HOST}:${HOST_PORT}/mcp/ 对比版本号。`);
     process.exit(0);
   } catch (e) {
     line(`\n❌ ${e.message}`);

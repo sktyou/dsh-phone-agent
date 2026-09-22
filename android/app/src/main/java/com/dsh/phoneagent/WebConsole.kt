@@ -423,16 +423,34 @@ class WebConsole(
                     "args = [\"$file\", \"--host\", \"$hostOnly\"]",
             )
             .put("fileName", file)
+            .put("appVersion", appVersionName())
+            .put("appVersionCode", appVersionCode())
             .put("controlPort", hostOnly)
             .put("console", "http://$host/")
             .put("download", "http://$host/mcp/$file")
             .put("testScript", "http://$host/mcp/test.mjs")
             .put("help", "http://$host/mcp/")
+            // Clients cache the bridge; this is the value they compare against to
+            // decide whether the copy on disk is still current.
+            .put("note", "手机 App 更新后请重新下载 $file,并对比 appVersion")
     }
 
     /** Self-contained help page: no external assets, works offline. */
     private fun mcpHelpPage(host: String): String {
         val hostOnly = host.substringBefore(":")
+        val version = appVersionName()
+        val versionCode = appVersionCode()
+        // A date rather than a hash: the person reading this is deciding whether the
+        // file they downloaded weeks ago is still current, and "built on the 21st" is
+        // answerable at a glance where a commit id is not.
+        val built = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.US)
+            .format(java.util.Date(context.packageManager
+                .let { pm ->
+                    runCatching {
+                        @Suppress("DEPRECATION")
+                        pm.getPackageInfo(context.packageName, 0).lastUpdateTime
+                    }.getOrDefault(System.currentTimeMillis())
+                }))
         return """
 <!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8">
@@ -456,19 +474,47 @@ class WebConsole(
         margin:4px 8px 4px 0}
   ol{padding-left:20px} li{margin:6px 0}
   .muted{color:#8b93a1;font-size:12.5px}
+  .ver{display:inline-block;background:#0EA36B;color:#fff;border-radius:6px;
+       padding:2px 9px;font-weight:700;font-size:12.5px;font-family:ui-monospace,monospace}
+  .warn{border-color:#5a4a1a;background:#221d10}
+  .warn b{color:#f59e0b}
 </style></head><body><div class="wrap">
 
 <h1>MCP 接入</h1>
-<div class="sub">让 Claude Code / Cursor / Codex / Windsurf 驱动这台手机</div>
+<div class="sub">
+  让 Claude Code / Cursor / Codex / Windsurf 驱动这台手机 ·
+  App 版本 <span class="ver">$version</span>
+</div>
 
 <div class="card">
-  <b>手机上 MCP 已开启</b> · 控制地址 <code>$hostOnly:7912</code>
+  <b>手机上 MCP 已开启</b> · 控制地址 <code>$hostOnly:7912</code> · 构建于 $built
   <div style="margin-top:10px">
     <a class="pill" href="/mcp/server.mjs">下载 server.mjs</a>
     <a class="pill" href="/mcp/test.mjs">下载 test.mjs</a>
     <a class="pill" href="/mcp/README.md">下载说明</a>
     <a class="pill" href="/mcp/config.json">配置 JSON</a>
   </div>
+</div>
+
+<div class="card warn">
+  <b>⚠️ 这里的东西会更新 —— 下载过的文件可能已经过时</b>
+  <div class="muted" style="margin-top:8px">
+    桥接脚本 <code>server.mjs</code> 只是手机 API 的翻译层。手机 App 升级后,
+    如果命令的参数或返回结构变了,<b>旧脚本仍然能连上,却会在某个命令上失败</b> ——
+    看起来像手机出了 bug,实际是电脑上那份文件旧了。
+    <br><br>
+    <b>什么时候应该重新下载:</b>
+    <br>· 手机 App 更新之后(本页顶部会显示新的版本号)
+    <br>· <code>--selftest</code> 报出下面的版本不一致
+    <br>· 某个命令报 <code>unknown command</code> 或参数错误,而文档里写着它应该存在
+  </div>
+</div>
+
+<h2>检查版本是否一致</h2>
+<pre>node server.mjs --host $hostOnly --selftest</pre>
+<div class="muted">
+  会打印手机型号、无障碍状态、权限自检,<b>以及手机当前的 App 版本</b>。
+  把那个版本号和本页顶部的 <span class="ver">$version</span> 对一下即可。
 </div>
 
 <h2>三步接入</h2>
@@ -493,22 +539,18 @@ class WebConsole(
 command = "node"
 args = ["D:/phone-mcp/server.mjs", "--host", "$hostOnly"]</pre>
 
-<h2>先验证再接入</h2>
-<pre>node server.mjs --host $hostOnly --selftest</pre>
-<div class="muted">能打印出设备型号和权限自检,说明链路是通的。</div>
-
 <h2>可以说什么</h2>
 <pre>看一下手机上现在是什么页面
 打开设置,找到电池,告诉我当前电量
 把那个「跳过」按钮点掉
 把这个列表从头到尾读一遍</pre>
 
-<h2>18 个工具</h2>
+<h2>19 个工具</h2>
 <div class="muted">
   phone_status · phone_screenshot · phone_uitree · phone_locate · phone_tap ·
   phone_swipe · phone_swipe_measure · phone_text · phone_key · phone_find_text ·
-  phone_ocr · phone_sweep · phone_sequence · phone_incidents · phone_launch ·
-  phone_apps · phone_find_image · phone_raw
+  phone_ocr · phone_sweep · phone_wait · phone_sequence · phone_incidents ·
+  phone_launch · phone_apps · phone_find_image · phone_raw
 </div>
 
 <div class="card" style="margin-top:24px">
@@ -519,9 +561,26 @@ args = ["D:/phone-mcp/server.mjs", "--host", "$hostOnly"]</pre>
   </div>
 </div>
 
+<div class="muted" style="margin-top:18px;text-align:center">
+  DSH Phone Agent $version (build $versionCode) · Apache-2.0
+</div>
+
 </div></body></html>
 """.trimIndent()
     }
+
+    private fun appVersionName(): String = runCatching {
+        context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: ""
+    }.getOrDefault("")
+
+    private fun appVersionCode(): Long = runCatching {
+        val info = context.packageManager.getPackageInfo(context.packageName, 0)
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+            info.longVersionCode
+        } else {
+            @Suppress("DEPRECATION") info.versionCode.toLong()
+        }
+    }.getOrDefault(0L)
 
     private fun writeHtml(out: BufferedOutputStream, html: String) {
         val bytes = html.toByteArray(Charsets.UTF_8)
