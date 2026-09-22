@@ -399,6 +399,10 @@ class WebConsole(
     /** A ready-to-paste MCP client configuration. */
     private fun mcpConfig(host: String): JSONObject {
         val hostOnly = host.substringBefore(":")
+        // The downloaded file is named server.mjs; the config must say the same thing
+        // or a caller who follows it verbatim gets MODULE_NOT_FOUND on a name that
+        // never existed.
+        val file = "server.mjs"
         return JSONObject()
             .put("ok", true)
             .put(
@@ -409,19 +413,21 @@ class WebConsole(
                         "phone",
                         JSONObject()
                             .put("command", "node")
-                            .put("args", JSONArray(listOf("index.mjs", "--host", hostOnly))),
+                            .put("args", JSONArray(listOf(file, "--host", hostOnly))),
                     ),
                 ),
             )
             .put(
                 "codex",
                 "[mcp_servers.phone]\ncommand = \"node\"\n" +
-                    "args = [\"index.mjs\", \"--host\", \"$hostOnly\"]",
+                    "args = [\"$file\", \"--host\", \"$hostOnly\"]",
             )
+            .put("fileName", file)
             .put("controlPort", hostOnly)
             .put("console", "http://$host/")
-            .put("download", "http://$host/mcp/server.mjs")
+            .put("download", "http://$host/mcp/$file")
             .put("testScript", "http://$host/mcp/test.mjs")
+            .put("help", "http://$host/mcp/")
     }
 
     /** Self-contained help page: no external assets, works offline. */

@@ -82,21 +82,53 @@ args = ["E:/DSH-Phone-Agent/pc/mcp-server/index.mjs", "--host", "192.168.12.138"
 | 工具 | 用途 |
 |---|---|
 | `phone_status` | **设备状态 + 12 项权限自检** —— 连接后先调这个 |
-| `phone_screenshot` | 截图(返回图片,模型能直接看到) |
-| `phone_uitree` | 界面节点树 |
+| `phone_screenshot` | 截图(返回图片 + **坐标换算元数据**) |
+| `phone_uitree` | 界面节点树(**附带控件树可用性提示**) |
 | **`phone_locate`** | **定位链**:viewId → text → 包含 → desc → OCR → 颜色,自动尝试并报告用了哪种 |
-| `phone_tap` | 点击(**带执行前安全检查**) |
+| `phone_tap` | 点击(**带执行前安全检查**,三档判定) |
 | `phone_swipe` | 滑动(末尾自动刹车,落点准) |
 | `phone_swipe_measure` | 滑动 + **测量内容实际滚了多远** |
 | `phone_text` / `phone_key` | 输入 / 系统键 |
 | `phone_find_text` | 按文字找控件(树 + OCR 融合) |
-| `phone_ocr` | 本地中文 OCR |
-| `phone_sweep` | **滚动识别**,一次读完整个长列表 |
+| `phone_ocr` | 本地中文 OCR(**带 bounds 和 confidence**) |
+| `phone_sweep` | **滚动识别**,返回结构化行(含坐标/轮次/置信度) |
+| **`phone_wait`** | **等待元素出现/消失** —— 用它代替 sleep |
 | **`phone_sequence`** | **动作连发**,处理会消失的瞬时控件 |
 | **`phone_incidents`** | **查询未解决的执行事故** |
 | `phone_launch` / `phone_apps` | 应用管理 |
 | `phone_find_image` | 模板找图 |
 | `phone_raw` | 执行任意命令(兜底) |
+
+## 几个容易踩的点
+
+**`phone_sweep` 要拿 `ocrLines` 而不是 `lines`**
+
+`lines` 是纯文本数组,保留只是为了兼容。多列布局下相邻条目的文字会互相穿插,**用它配对价格和商品是在掷骰子**。`ocrLines` 的每一项带 `bounds` / `capture`(滚动轮次) / `confidence`,按 y 坐标就近配对才是可靠的。
+
+**`phone_tap` 的 `safety.code` 有四档**
+
+| code | 含义 | 该怎么做 |
+|---|---|---|
+| `ok` | 顶层可点 | 正常 |
+| `obscured` | 被不可点覆盖层挡住(**水印/蒙层**),或自绘 UI 里无障碍看不到目标 | 正常执行,触摸通常穿透 |
+| `scrollable` | 可滚动容器 | 点击无效,拖动有效 |
+| `empty` | 顶层是有内容的节点但不可点 | **这才是真的点了没用** |
+
+早期版本只有"可点/不可点",在有水印层的 App 里**每次都报错而每次都有效** —— 那种警告会让调用方学会彻底忽略这个字段。
+
+**别用 sleep,用 `phone_wait`**
+
+```json
+{"cmd":"wait","target":"星耀天都店","mode":"text","timeoutMs":8000}
+→ {"appeared":true,"elapsedMs":2340,"center":[540,1204]}
+```
+
+元素已经在时 **elapsedMs=0**;超时返回 `appeared:false`(不是错误)。`mode: gone` 用来等 loading 消失。
+
+**`phone_uitree` 的 `uiTreeTextRate` 先看一眼**
+
+自绘 UI(Flutter / Canvas / H5)的控件树可能只有十几个容器、**零文本**。这种情况下选择器永远返回 0,**不是元素不存在,是控件树根本没描述它**。返回里会直接给出提示。
+
 
 ---
 
@@ -130,11 +162,21 @@ args = ["E:/DSH-Phone-Agent/pc/mcp-server/index.mjs", "--host", "192.168.12.138"
 
 ```bash
 # 列出工具
-echo '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | node pc/mcp-server/index.mjs
+echo '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | node server.mjs --host <手机IP>
 
 # 调一次设备状态
 echo '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"phone_status","arguments":{}}}' \
-  | node pc/mcp-server/index.mjs
+  | node server.mjs --host <手机IP>
 ```
 
-第二行会打印手机的型号、屏幕、电量和 12 项能力检查结果 —— **能打出来就说明链路是通的**。
+第二行会打印手机的型号、屏幕、电量和权限自检结果 —— **能打出来就说明链路是通的**。
+
+> stdin 关闭不再等于立即退出:服务器会等在途请求写完响应。早期版本在管道里用不了,
+> 因为 `echo` 一结束进程就没了,响应写到没人读的 stdout 里。
+
+**更完整的验证**:
+
+```bash
+node test-mcp.mjs --host <手机IP>      # 19 项检查
+node server.mjs --host <手机IP> --selftest   # 一次连通性自检
+```

@@ -94,6 +94,14 @@ object OcrEngine {
         offsetY: Int,
     ): JSONObject {
         val blocks = JSONArray()
+        // Flat line list, in reading order.
+        //
+        // The nested `blocks` structure preserves ML Kit's own grouping, but a caller
+        // pairing a price with the product above it needs geometry, not grouping — and
+        // on a multi-column list the grouping follows the columns, which is exactly
+        // the order that scrambles the pairing. A flat list with bounds lets the caller
+        // do the spatial matching itself.
+        val flat = JSONArray()
         var lineCount = 0
         var elementCount = 0
 
@@ -103,14 +111,42 @@ object OcrEngine {
                 val elements = JSONArray()
                 for (element in line.elements) {
                     elementCount++
-                    elements.put(describe(element.text, element.boundingBox, offsetX, offsetY))
+                    elements.put(describe(element.text, element.boundingBox, offsetX, offsetY, element))
                 }
                 lineCount++
-                val lineJson = describe(line.text, line.boundingBox, offsetX, offsetY)
+
+                val lineJson = describe(line.text, line.boundingBox, offsetX, offsetY, null)
                 if (elements.length() > 0) lineJson.put("elements", elements)
                 lines.put(lineJson)
+
+                // The flat entry mirrors the line, carrying the same coordinates so a
+                // result from `ocr` and one from `findtext` land in one coordinate
+                // system and can be compared directly.
+                val flatEntry = JSONObject().put("text", line.text)
+                line.boundingBox?.let { box ->
+                    val l = box.left + offsetX
+                    val t = box.top + offsetY
+                    val r = box.right + offsetX
+                    val b = box.bottom + offsetY
+                    flatEntry.put("bounds", JSONArray(listOf(l, t, r, b)))
+                    flatEntry.put("center", JSONArray(listOf((l + r) / 2, (t + b) / 2)))
+                    flatEntry.put("height", b - t)
+                }
+                // Per-line confidence, averaged over its elements. ML Kit's Chinese
+                // recogniser does not always populate this; absence is reported as
+                // null rather than as a made-up number.
+                val confidences = line.elements.mapNotNull { elementConfidence(it) }
+                if (confidences.isNotEmpty()) {
+                    flatEntry.put("confidence", confidences.average())
+                } else {
+                    flatEntry.put("confidence", JSONObject.NULL)
+                }
+                // `put`, not `add`: Android's platform org.json is not java.util.List,
+                // and `add` only appears with the API 34 collection interface — using
+                // it compiles against 34 and fails on the devices we support.
+                flat.put(flatEntry)
             }
-            val blockJson = describe(block.text, block.boundingBox, offsetX, offsetY)
+            val blockJson = describe(block.text, block.boundingBox, offsetX, offsetY, null)
             if (lines.length() > 0) blockJson.put("lines", lines)
             blocks.put(blockJson)
         }
@@ -120,14 +156,25 @@ object OcrEngine {
             .put("lineCount", lineCount)
             .put("elementCount", elementCount)
             .put("fullText", text.text)
+            .put("ocrLines", flat)
             .put("blocks", blocks)
     }
+
+    /**
+     * Element confidence, when the recogniser provides one.
+     *
+     * Guarded because the API is nullable and the Chinese model does not always fill
+     * it — a missing value must not turn into a confident-looking 0.0.
+     */
+    private fun elementConfidence(element: Text.Element): Double? =
+        runCatching { element.confidence?.toDouble() }.getOrNull()
 
     private fun describe(
         value: String,
         box: Rect?,
         offsetX: Int,
         offsetY: Int,
+        element: Text.Element?,
     ): JSONObject {
         val out = JSONObject().put("text", value)
         if (box != null) {
@@ -138,6 +185,10 @@ object OcrEngine {
             out.put("bounds", JSONArray(listOf(left, top, right, bottom)))
             out.put("center", JSONArray(listOf((left + right) / 2, (top + bottom) / 2)))
         }
+        if (element != null) {
+            val c = elementConfidence(element)
+            out.put("confidence", c ?: JSONObject.NULL)
+        }
         return out
     }
 
@@ -146,5 +197,6 @@ object OcrEngine {
         .put("lineCount", 0)
         .put("elementCount", 0)
         .put("fullText", "")
+        .put("ocrLines", JSONArray())
         .put("blocks", JSONArray())
 }

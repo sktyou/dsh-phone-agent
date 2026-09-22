@@ -117,11 +117,15 @@ const TOOLS = [
   },
   {
     name: "phone_screenshot",
-    description: "截取当前屏幕。返回图片,可以直接看到手机画面。scale 越小越快(0.35 约 300ms,1.0 约 1200ms)。",
+    description:
+      "截取当前屏幕。返回图片,并附带坐标换算元数据(screenWidth/imageWidth/regionOrigin)。" +
+      "scale 越小越快(0.35 约 300ms,1.0 约 1200ms);region 可以只截列表区域,减少数据量。",
     inputSchema: {
       type: "object",
       properties: {
         scale: { type: "number", description: "缩放比例 0.05-1,默认 0.5" },
+        maxWidth: { type: "number", description: "输出图片的宽度上限,与 scale 二选一" },
+        quality: { type: "number", description: "JPEG 质量 1-100,默认 85" },
         region: {
           type: "array", items: { type: "number" },
           description: "可选 [left, top, right, bottom],只截取该区域",
@@ -130,9 +134,26 @@ const TOOLS = [
       additionalProperties: false,
     },
     handler: async (a) => {
-      const cmd = { cmd: "screenshot", scale: a.scale ?? 0.5, quality: 85, format: "jpeg" };
+      const cmd = {
+        cmd: "screenshot",
+        scale: a.scale ?? 0.5,
+        quality: a.quality ?? 85,
+        format: "jpeg",
+      };
+      if (a.maxWidth) cmd.maxWidth = a.maxWidth;
       if (a.region) cmd.region = a.region;
-      return imageResult(cmd, a.region ? `区域 ${a.region.join(",")}` : undefined);
+      const data = await run(cmd);
+      // The geometry rides along as text: without it a model can see the picture but
+      // cannot turn a pixel in it back into a coordinate it is allowed to tap.
+      const meta =
+        `图像 ${data.imageWidth}x${data.imageHeight} · 屏幕 ${data.screenWidth}x${data.screenHeight}\n` +
+        `换算: 手机坐标 = 图像坐标 × ${data.imageToScreenX?.toFixed(4) ?? "?"} + 区域原点 ${JSON.stringify(data.regionOrigin ?? [0, 0])}`;
+      return {
+        content: [
+          { type: "text", text: meta },
+          { type: "image", data: data.image, mimeType: data.imageFormat === "png" ? "image/png" : "image/jpeg" },
+        ],
+      };
     },
   },
   {
@@ -313,6 +334,29 @@ const TOOLS = [
         (d.lines || []).join("\n"),
       );
     },
+  },
+  {
+    name: "phone_wait",
+    description:
+      "等待某个文字出现(mode=text/node)或消失(mode=gone)。" +
+      "**用它代替 sleep** —— sleep 永远在两个方向上都错:太短则下个动作打进还没渲染的页面," +
+      "太长则每一步都在为最坏情况付费。超时返回 appeared:false,不是错误。",
+    inputSchema: {
+      type: "object",
+      properties: {
+        target: { type: "string", description: "要等待的文字" },
+        mode: {
+          type: "string", enum: ["text", "node", "gone"],
+          description: "text=树+OCR(默认) / node=仅控件树(更快) / gone=等它消失",
+        },
+        timeoutMs: { type: "number", description: "默认 8000" },
+      },
+      required: ["target"],
+      additionalProperties: false,
+    },
+    handler: async (a) => json(await run({
+      cmd: "wait", target: a.target, mode: a.mode ?? "text", timeoutMs: a.timeoutMs ?? 8000,
+    })),
   },
   {
     name: "phone_sequence",
@@ -518,6 +562,24 @@ async function handle(message) {
 // Newline-delimited JSON on stdin. A partial line is buffered until its newline
 // arrives, which is what makes multi-megabyte screenshot payloads safe.
 let inputBuffer = "";
+let inFlight = 0;
+let stdinClosed = false;
+
+/**
+ * Exit only once nothing is outstanding.
+ *
+ * `echo '{...}' | node server.mjs` closes stdin the instant the line is read, which
+ * used to kill the process before the phone had answered — the reply was written to a
+ * stdout nobody was reading any more, so the documented one-liner always printed
+ * nothing. A pipe delivering a single request is a legitimate way to use this server,
+ * so EOF now means "no more requests", not "stop working".
+ */
+function exitWhenDrained() {
+  if (!stdinClosed) return;
+  if (inFlight === 0) process.exit(0);
+  setTimeout(exitWhenDrained, 100);
+}
+
 process.stdin.setEncoding("utf8");
 process.stdin.on("data", (chunk) => {
   inputBuffer += chunk;
@@ -532,13 +594,22 @@ process.stdin.on("data", (chunk) => {
     } catch {
       continue;   // not JSON: ignore rather than crash the server
     }
-    handle(message).catch((e) => {
-      if (message.id !== undefined) replyError(message.id, -32603, e.message);
-    });
+    inFlight++;
+    handle(message)
+      .catch((e) => {
+        if (message.id !== undefined) replyError(message.id, -32603, e.message);
+      })
+      .finally(() => {
+        inFlight--;
+        exitWhenDrained();
+      });
   }
 });
 
-process.stdin.on("end", () => process.exit(0));
+process.stdin.on("end", () => {
+  stdinClosed = true;
+  exitWhenDrained();
+});
 
 process.stderr.write(
   `[dsh-phone-agent] MCP server ready → phone at ${HOST}:${PORT}` +

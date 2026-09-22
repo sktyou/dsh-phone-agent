@@ -136,26 +136,105 @@ description: 通过 DSH Phone Agent App 在局域网内操控 Android 手机—�
 **`tap` / `longpress` / `doubletap` 默认检查目标位置有什么**:
 
 ```json
-{"cmd":"tap","x":540,"y":26}
-→ {"completed":true,"safety":{
-     "code":"not-clickable",
-     "hint":"(540,26) 处的节点及其 5 层祖先都不可点 —— 点击不会触发任何东西",
-     "hit":{"cls":"View","bounds":[0,0,1080,95]}}}
+{"cmd":"tap","x":540,"y":300}
+→ {"completed":true,"safety":{"code":"obscured","ok":true,
+     "hint":"顶层是覆盖全屏的空层「LinearLayout#water_mark_view」—— 水印/蒙层一类的东西。..."}}
 ```
 
-| code | 含义 |
+| code | 含义 | 该怎么做 |
+|---|---|---|
+| `ok` | 顶层或其祖先可点 | 正常 |
+| `obscured` | **被不可点覆盖层挡住**(水印/蒙层),或自绘 UI 里无障碍看不到目标 | **正常执行** —— 触摸通常穿透 |
+| `scrollable` | 可滚动容器 | 点击无效,拖动有效 |
+| `empty` | 顶层**是有内容的节点**但不可点 | **这才是真的点了没用** |
+
+**`ok` / `obscured` / `scrollable` 都算安全**,所以 `abortOnUnsafe: true` 只在
+`empty` / `no-root` 时拦下动作。
+
+**为什么要有 `obscured` 这一档**:早期版本只有"可点/不可点",而在带全屏水印层的
+App 里**每次点击都报"不可点"、每次点击却都生效**。`abortOnUnsafe` 因此完全不可用,
+调用方也被训练成彻底忽略 `safety` 字段 —— 那种警告比没有警告更糟。
+
+**真机实测**(淘宝闪购,水印层 `me.ele:id/water_mark_view` 覆盖全屏):
+三处点击全部返回 `obscured` / `ok=true`,`abortOnUnsafe: true` 下照常执行。
+
+## ⚠️ 自绘 UI:控件树可能什么都没描述
+
+**先看 `uitree` 返回的 `uiTreeTextRate`**:
+
+```json
+{"uiTreeTextRate":0.0,"uiTreeVisibleNodes":13,"uiTreeTextNodes":0,
+ "hint":"控件树里只有 0/13 个节点带文本 —— 这个 App 很可能是自绘界面..."}
+```
+
+Flutter / Canvas / H5 应用的控件树可能只有十几个容器、**零文本**。
+这种情况下选择器永远返回 `count: 0` —— **不是元素不存在,是控件树根本没描述它**。
+
+**看到这个提示就改用** `ocr` / `findtext` / `sweep` / `findcolor` 这类基于画面的工具。
+
+## 长列表采集:用 `ocrLines`,不要用 `lines`
+
+`sweep` 的 `lines` 是**纯文本数组**(只为兼容保留)。多列布局下相邻条目的文字互相穿插,
+**用它配对价格和商品是在掷骰子** —— 实测把"咸蛋黄鸡米花"的 ¥9.9 配给了上一行的
+"盐酥鸡米花",整批数据只能废弃。
+
+**用 `ocrLines`**:
+
+```json
+{"ocrLines":[
+  {"text":"【招牌必点】狼牙土豆(口味自选)","bounds":[556,516,1040,612],
+   "center":[798,564],"confidence":0.97,"capture":3}]}
+```
+
+- `bounds` — 真实屏幕坐标,和 `findtext` 同一坐标系
+- `capture` — 属于第几轮滚动,可按轮次聚类
+- `confidence` — 低于阈值(默认 0.85)的行**照常返回**,由调用方决定是否复核
+
+**配对方法**:按 `bounds` 的 y 坐标,把价格行配到上方最近的标题行。
+
+`ocr` 命令同样返回 `ocrLines`(以及兼容的 `fullText` / `blocks`)。
+
+## 别用 sleep,用 `wait`
+
+```json
+{"cmd":"wait","target":"星耀天都店","mode":"text","timeoutMs":8000}
+→ {"appeared":true,"elapsedMs":2340,"center":[540,1204]}
+```
+
+| mode | 行为 |
 |---|---|
-| `ok` | 命中可点节点 |
-| `scrollable` | 可滚动容器,拖动有效但点击无效 |
-| `not-clickable` | 该处及 5 层祖先都不可点 |
-| `empty` | 那里什么都没有 |
-| `no-root` | 拿不到节点树 |
+| `text`(默认) | 控件树 + OCR 轮询,复用 `findtext` 的逻辑 |
+| `node` | 仅控件树,更快 |
+| `gone` | **反向**:等目标消失,用来等 loading 结束 |
 
-**默认只报告不拦截** —— canvas / WebView / 游戏表面本来就没有无障碍节点。
-加 **`abortOnUnsafe: true`** 才硬停(此时 `aborted:true`,手势不发出去)。
+**元素已经在时 `elapsedMs=0`** —— 这就是它比固定 sleep 强的地方:
+sleep 永远在两个方向上都错(太短打进未渲染的页面,太长让每一步都为最坏情况付费)。
 
-**为什么需要**:点击落在空白处**不会报错** —— 手势被接受、框架回 success、脚本继续跑。
-**这是自动化里最糟的失败模式,因为它是隐藏的。**
+**超时返回 `{"appeared":false,"timedOut":true}` 而不是报错**。
+
+不带 `target` 时退化为纯等待(`{"ms":800}`),保持向后兼容。
+
+## 截图:坐标换算元数据
+
+```json
+{"cmd":"screenshot","region":[230,440,1080,2200],"maxWidth":400,"quality":70}
+→ {"imageWidth":400,"imageHeight":888,
+   "screenWidth":1080,"screenHeight":2400,
+   "imageToScreenX":0.3704,"imageToScreenY":0.3700,
+   "regionOrigin":[230,440]}
+```
+
+**换算公式**:
+
+```
+手机坐标 = 图像坐标 × imageToScreen{X,Y} + regionOrigin
+```
+
+- `imageToScreen*` 是**实测比值**,不是回显请求参数 —— 用了 `maxWidth` 之后实际比例
+  和请求的 `scale` 不一致
+- `regionOrigin` 是**缺了就会算错**的一半:裁剪后的图有屏幕偏移,只除 `scale` 会落到
+  屏幕左上角而不是裁剪起点
+- `maxWidth` 适合"只知道要多宽"的调用方;`region` 适合只采列表区域
 
 ## MCP:让任何 AI IDE 接入
 

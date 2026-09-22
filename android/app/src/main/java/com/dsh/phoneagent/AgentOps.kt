@@ -31,47 +31,142 @@ object SafetyNet {
         val bounds: Rect?,
         val clickableAncestor: AccessibilityNodeInfo?,
     ) {
-        val ok: Boolean get() = code == "ok"
+        /**
+         * Whether the action should proceed.
+         *
+         * `obscured` counts as safe: something clickable is at the coordinate, just
+         * under a layer that does not accept touch. Treating it as unsafe is what made
+         * `abortOnUnsafe` useless on apps with a watermark overlay.
+         */
+        val ok: Boolean get() = code == "ok" || code == "obscured" || code == "scrollable"
+
+        /** Bounds of the clickable node found through an overlay, when there is one. */
+        var throughBounds: Rect? = null
     }
 
     /**
      * Inspect the point [x],[y].
      *
-     * Returns `ok` when something clickable is there or when the point falls inside a
-     * scrollable container (scrolling is a legitimate reason to touch a non-clickable
-     * area). Otherwise it names the specific reason, because "not clickable" and
-     * "nothing at all here" need different responses from the caller.
+     * Three outcomes, because "the topmost node is not clickable" and "there is
+     * nothing to click here" are different facts and callers need to tell them apart.
+     *
+     * A full-screen non-clickable overlay is a common design — screenshot watermarks,
+     * scrims, dimming layers. On such an app every tap used to report `not-clickable`
+     * while every tap in fact worked, because touch passes through to whatever is
+     * underneath. A warning that is always wrong is worse than no warning: callers
+     * learn to ignore `safety` entirely, and the one case that mattered goes unnoticed.
+     *
+     * So the check now looks *through* the topmost hit as well.
      */
     fun check(service: AgentAccessibilityService, x: Int, y: Int): Verdict {
         val root = service.rootInActiveWindow
             ?: return Verdict("no-root", "拿不到界面节点树", null, null, null)
 
-        val hit = deepestAt(root, x, y)
+        val top = deepestAt(root, x, y)
             ?: return Verdict(
                 "empty",
                 "($x, $y) 处没有任何节点 —— 可能点在了空白区或系统窗口上",
                 null, null, null,
             )
 
-        val rect = Rect().also { hit.getBoundsInScreen(it) }
+        val rect = Rect().also { top.getBoundsInScreen(it) }
 
-        // A scrollable ancestor makes the point legitimate even when the hit node
-        // itself is not clickable: you scroll by dragging anywhere in the list.
-        val scrollable = ancestorMatching(hit) { it.isScrollable }
-        val clickable = ancestorMatching(hit) { it.isClickable && it.isVisibleToUser }
-        return when {
-            clickable != null -> Verdict("ok", "命中可点节点", hit, rect, clickable)
-            scrollable != null -> Verdict(
-                "scrollable",
-                "命中可滚动容器,拖动有效但点击无效",
-                hit, rect, null,
+        // 1. Clickable on the topmost branch — the ordinary case.
+        val direct = ancestorMatching(top) { it.isClickable && it.isVisibleToUser }
+        if (direct != null) return Verdict("ok", "命中可点节点", top, rect, direct)
+
+        // 2. Not clickable itself, but something at the same coordinate is. Reachable
+        //    whenever an overlay sits on top of the real target.
+        val through = deepestClickableAt(root, x, y)
+        if (through != null) {
+            val verdict = Verdict(
+                "obscured",
+                "顶层是「${labelOf(top)}」(不可点),下方有可点节点「${labelOf(through)}」—— " +
+                    "触摸通常穿透覆盖层,判定为可点",
+                top, rect, through,
             )
-            else -> Verdict(
-                "not-clickable",
-                "($x, $y) 处的节点及其 5 层祖先都不可点 —— 点击不会触发任何东西",
-                hit, rect, null,
+            verdict.throughBounds = Rect().also { through.getBoundsInScreen(it) }
+            return verdict
+        }
+
+        // 3. A scrollable ancestor still makes a drag legitimate, even though a tap
+        //    here does nothing.
+        val scrollable = ancestorMatching(top) { it.isScrollable }
+        if (scrollable != null) {
+            return Verdict("scrollable", "命中可滚动容器,拖动有效但点击无效", top, rect, null)
+        }
+
+        // 4. A full-screen blank layer is an overlay, and its presence says nothing
+        //    about what is underneath.
+        //
+        //    This is the case that made the verdict useless on custom-drawn apps: a
+        //    watermark or scrim covers everything, the real targets are drawn by the
+        //    app's own renderer and expose no accessibility node at all, so "no
+        //    clickable node found" is true and yet every tap lands correctly. Calling
+        //    it `empty` would train the caller to ignore the field exactly where it
+        //    matters.
+        val screen = realScreenSize(service)
+        val coversScreen = screen != null &&
+            rect.width() >= screen.first * 0.92 && rect.height() >= screen.second * 0.85
+        val blank = (top.text?.toString().isNullOrEmpty()) &&
+            (top.contentDescription?.toString().isNullOrEmpty())
+        if (coversScreen && blank) {
+            return Verdict(
+                "obscured",
+                "顶层是覆盖全屏的空层「${labelOf(top)}」—— 这是水印/蒙层一类的东西。" +
+                    "下方内容如果是自绘的(Flutter/Canvas/H5),无障碍看不到,但真实触摸通常仍有效。",
+                top, rect, null,
             )
         }
+
+        return Verdict(
+            "empty",
+            "($x, $y) 处没有任何可点节点 —— 点击不会触发任何东西",
+            top, rect, null,
+        )
+    }
+
+    /** Screen size, for judging whether a node covers the whole display. */
+    private fun realScreenSize(service: AgentAccessibilityService): Pair<Int, Int>? = runCatching {
+        val size = service.screenSize()
+        size[0] to size[1]
+    }.getOrNull()
+
+    private fun labelOf(node: AccessibilityNodeInfo): String {
+        val cls = node.className?.toString()?.substringAfterLast('.') ?: "节点"
+        val text = node.text?.toString()?.take(12)
+        val desc = node.contentDescription?.toString()?.take(12)
+        val id = node.viewIdResourceName?.substringAfterLast('/')
+        return when {
+            !text.isNullOrEmpty() -> "$cls「$text」"
+            !desc.isNullOrEmpty() -> "$cls「$desc」"
+            !id.isNullOrEmpty() -> "$cls#$id"
+            else -> cls
+        }
+    }
+
+    /**
+     * The deepest clickable node whose bounds contain the point, anywhere in the tree.
+     *
+     * Unlike [deepestAt] this does not stop at the topmost branch — it is specifically
+     * looking past an overlay, so it has to consider the branches that overlay hides.
+     */
+    private fun deepestClickableAt(
+        node: AccessibilityNodeInfo,
+        x: Int,
+        y: Int,
+        depth: Int = 0,
+    ): AccessibilityNodeInfo? {
+        if (depth > 60) return null
+        val rect = Rect()
+        node.getBoundsInScreen(rect)
+        if (!rect.contains(x, y)) return null
+
+        for (i in 0 until node.childCount) {
+            val child = node.getChild(i) ?: continue
+            deepestClickableAt(child, x, y, depth + 1)?.let { return it }
+        }
+        return if (node.isClickable && node.isVisibleToUser) node else null
     }
 
     /** Serialise a verdict for the wire. Nodes are summarised, never passed through. */
@@ -85,6 +180,9 @@ object SafetyNet {
         }
         verdict.node?.let { out.put("hit", describe(it)) }
         verdict.clickableAncestor?.let { out.put("clickable", describe(it)) }
+        verdict.throughBounds?.let {
+            out.put("throughBounds", JSONArray(listOf(it.left, it.top, it.right, it.bottom)))
+        }
         return out
     }
 

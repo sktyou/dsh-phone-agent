@@ -283,10 +283,12 @@ class ControlServer(
         return when (cmd) {
             "observe" -> observe(service, req)
             "screenshot" -> screenshot(service, req)
-            "uitree" -> UiTree.dump(
-                service.rootNode(),
-                req.optInt("maxDepth", 30),
-                req.optInt("maxNodes", 2000),
+            "uitree" -> annotateTreeQuality(
+                UiTree.dump(
+                    service.rootNode(),
+                    req.optInt("maxDepth", 30),
+                    req.optInt("maxNodes", 2000),
+                ),
             )
             "find" -> NodeQuery.find(
                 service.rootNode(),
@@ -323,9 +325,17 @@ class ControlServer(
             "clear" -> clearField(service)
             "launch" -> launch(req)
             "wait" -> {
-                val ms = req.optLong("ms", 500L).coerceIn(0L, 15_000L)
-                Thread.sleep(ms)
-                JSONObject().put("waitedMs", ms)
+                // Two modes under one command: a bare sleep when no target is given,
+                // and a wait-for-element when one is. Keeping them together means a
+                // caller that already knows about `wait` does not have to discover a
+                // second verb to stop guessing at timings.
+                if (req.has("target")) {
+                    waitForTarget(requireService(), req)
+                } else {
+                    val ms = req.optLong("ms", 500L).coerceIn(0L, 15_000L)
+                    Thread.sleep(ms)
+                    JSONObject().put("waitedMs", ms).put("appeared", true)
+                }
             }
             else -> throw IllegalArgumentException("unknown command: $cmd")
         }
@@ -417,18 +427,48 @@ class ControlServer(
             )
             if (scaled !== frame) frame = scaled
         }
+
+        // A hard ceiling on width, independent of `scale`. Callers that only need to
+        // read a list do not know the screen size up front, so a proportional scale
+        // forces them to guess; "no wider than N" is the thing they actually want.
+        val maxWidth = req.optInt("maxWidth", 0)
+        if (maxWidth > 0 && frame.width > maxWidth) {
+            val ratio = maxWidth.toDouble() / frame.width
+            val capped = Bitmap.createScaledBitmap(
+                frame,
+                maxWidth,
+                max(1, (frame.height * ratio).toInt()),
+                true,
+            )
+            if (capped !== frame) frame = capped
+        }
         return frame
     }
 
-    /** Screen size + scale the caller must apply to map image pixels back to touch pixels. */
+    /**
+     * Screen size + scale the caller must apply to map image pixels back to touch pixels.
+     *
+     * `regionOrigin` is the other half of that mapping and was missing: a cropped frame
+     * sits at an offset in screen space, so a caller dividing by scale alone lands
+     * wherever the top-left of the screen is instead of wherever the crop started.
+     */
     private fun frameMeta(req: JSONObject, frame: Bitmap): JSONObject {
         val screen = realScreen()
+        val region = req.optJSONArray("region")
+        val originX = if (region != null && region.length() >= 4) region.getInt(0) else 0
+        val originY = if (region != null && region.length() >= 4) region.getInt(1) else 0
+        // Derived rather than echoed from `req`: with `maxWidth` in play the effective
+        // ratio is not the requested one, and a caller trusting the echo would be off.
+        val effectiveX = frame.width.toDouble() / screen.widthPixels
         return JSONObject()
             .put("screenWidth", screen.widthPixels)
             .put("screenHeight", screen.heightPixels)
             .put("scale", req.optDouble("scale", 1.0))
             .put("imageWidth", frame.width)
             .put("imageHeight", frame.height)
+            .put("regionOrigin", JSONArray(listOf(originX, originY)))
+            .put("imageToScreenX", effectiveX)
+            .put("imageToScreenY", frame.height.toDouble() / screen.heightPixels)
             .put("rotation", rotationDegrees())
     }
 
@@ -539,7 +579,13 @@ class ControlServer(
             else Rect(arr.getInt(0), arr.getInt(1), arr.getInt(2), arr.getInt(3))
         }
 
-        val seen = LinkedHashSet<String>()
+        // Text -> its first sighting, in reading order.
+        //
+        // The value carries geometry and the capture index, which is what lets a caller
+        // pair a price with the product above it. The old output was a bare list of
+        // strings, so on a multi-column layout a caller had no way to tell which ¥9.9
+        // belonged to which item — and every pairing it guessed was a coin flip.
+        val seen = LinkedHashMap<String, JSONObject>()
         var performed = 0
         var emptyRuns = 0
         var stopReason = "scrolls-exhausted"
@@ -561,11 +607,31 @@ class ControlServer(
             // A plain loop rather than forEach: an inline lambda cannot `break`, and
             // stopping early is the whole point of the counter below.
             var fresh = 0
-            val rawLines = result.optString("fullText").split('\n')
-            for (raw in rawLines) {
-                val line = raw.trim()
-                // Single characters are almost always noise picked off icons or badges.
-                if (line.length >= 2 && seen.add(line)) fresh++
+            val ocrLines = result.optJSONArray("ocrLines")
+            if (ocrLines != null && ocrLines.length() > 0) {
+                for (j in 0 until ocrLines.length()) {
+                    val entry = ocrLines.optJSONObject(j) ?: continue
+                    val text = entry.optString("text").trim()
+                    // Single characters are almost always noise picked off icons or badges.
+                    if (text.length < 2 || seen.containsKey(text)) continue
+                    seen[text] = JSONObject()
+                        .put("text", text)
+                        .put("bounds", entry.opt("bounds"))
+                        .put("center", entry.opt("center"))
+                        .put("confidence", entry.opt("confidence"))
+                        .put("capture", i)
+                    fresh++
+                }
+            } else {
+                // Fallback for a recogniser that returned no lines: keeps sweep working
+                // rather than silently producing nothing.
+                for (raw in result.optString("fullText").split('\n')) {
+                    val line = raw.trim()
+                    if (line.length >= 2 && !seen.containsKey(line)) {
+                        seen[line] = JSONObject().put("text", line).put("capture", i)
+                        fresh++
+                    }
+                }
             }
 
             if (fresh == 0) {
@@ -598,7 +664,9 @@ class ControlServer(
             .put("stepsPerCapture", steps)
             .put("lineCount", seen.size)
             .put("stopReason", stopReason)
-            .put("lines", JSONArray(seen.toList()))
+            // Legacy plain-text array, unchanged so existing callers keep working.
+            .put("lines", JSONArray(seen.keys.toList()))
+            .put("ocrLines", JSONArray(seen.values.toList()))
     }
 
     /**
@@ -2065,6 +2133,169 @@ class ControlServer(
     private fun requireService(): AgentAccessibilityService =
         AgentAccessibilityService.instance
             ?: throw IllegalStateException("无障碍服务未连接,请先在 App 里打开")
+
+    /**
+     * Say how useful the accessibility tree actually is here.
+     *
+     * Custom-drawn UIs (Flutter, Compose Canvas, games, and the H5 pages inside many
+     * shopping apps) expose a tree full of containers with no text at all. A caller
+     * that assumes the tree describes the screen then gets `count: 0` from every
+     * selector and concludes the element is missing, when in fact the tree simply
+     * never described it.
+     *
+     * Reporting the ratio turns that dead end into a signpost: low text density means
+     * switch to OCR, and the hint says so.
+     */
+    private fun annotateTreeQuality(tree: JSONObject): JSONObject {
+        var withText = 0
+        var visible = 0
+
+        fun walk(node: JSONObject?) {
+            if (node == null) return
+            visible++
+            val text = node.optString("text")
+            val desc = node.optString("desc")
+            if (text.isNotEmpty() || desc.isNotEmpty()) withText++
+            val children = node.optJSONArray("children") ?: return
+            for (i in 0 until children.length()) walk(children.optJSONObject(i))
+        }
+        walk(tree.optJSONObject("root"))
+
+        val rate = if (visible > 0) withText.toDouble() / visible else 0.0
+        tree.put("uiTreeTextRate", rate)
+            .put("uiTreeVisibleNodes", visible)
+            .put("uiTreeTextNodes", withText)
+
+        // Thresholds chosen from what the two ends actually look like: a native screen
+        // carries dozens of labelled nodes, a custom-drawn one can expose as few as a
+        // dozen containers and nothing else. The count matters as much as the ratio —
+        // a tiny tree with no text is the strongest signal there is, and requiring
+        // "more than 20 nodes" skipped exactly that case.
+        val sparse = withText < 3
+        val lowRatio = visible >= 8 && rate < 0.15
+        if (sparse || lowRatio) {
+            tree.put(
+                "hint",
+                "控件树里只有 $withText/$visible 个节点带文本 —— " +
+                    "这个 App 很可能是自绘界面(Flutter / Canvas / H5)," +
+                    "选择器基本找不到东西。改用 ocr / findtext / sweep 这类基于画面的工具。",
+            )
+        }
+        return tree
+    }
+
+    /**
+     * Poll until something appears (or disappears).
+     *
+     * `sleep` is the alternative, and it is always wrong in both directions: too short
+     * and the next action fires into a page that has not rendered, too long and every
+     * step of a long run pays for the worst case. A polling wait costs one check in the
+     * common case where the element is already there.
+     *
+     * Modes:
+     *  - `text` (default): accessibility tree plus OCR, the same fusion `findtext` uses
+     *  - `node`: tree only, for when OCR's latency is not worth paying
+     *  - `gone`: inverted — wait for the target to disappear, which is how a loading
+     *    state or a transient dialog is waited out
+     *
+     * A timeout is a normal outcome, not an error: the reply says `appeared: false` so
+     * a caller can decide whether to retry, adapt, or give up.
+     */
+    private fun waitForTarget(service: AgentAccessibilityService, req: JSONObject): JSONObject {
+        val target = req.getString("target")
+        val mode = req.optString("mode", "text").lowercase()
+        val timeoutMs = req.optLong("timeoutMs", 8_000L).coerceIn(200L, 120_000L)
+        // 400-600ms is the sweet spot: faster burns battery re-running OCR, slower
+        // starts to add its own latency to every step.
+        val intervalMs = req.optLong("intervalMs", 500L).coerceIn(150L, 5_000L)
+        val started = System.currentTimeMillis()
+
+        while (true) {
+            val elapsed = System.currentTimeMillis() - started
+            val hit = runCatching { probeTarget(service, target, mode) }.getOrNull()
+
+            val satisfied = if (mode == "gone") hit == null else hit != null
+            if (satisfied) {
+                return JSONObject()
+                    .put("appeared", mode != "gone")
+                    .put("gone", mode == "gone")
+                    .put("elapsedMs", elapsed)
+                    .put("target", target)
+                    .put("mode", mode)
+                    .apply { hit?.let { put("bounds", it.opt("bounds")); put("center", it.opt("center")) } }
+            }
+
+            if (elapsed >= timeoutMs) {
+                return JSONObject()
+                    .put("appeared", false)
+                    .put("gone", false)
+                    .put("timedOut", true)
+                    .put("elapsedMs", elapsed)
+                    .put("target", target)
+                    .put("mode", mode)
+                    .put("hint", if (mode == "gone") {
+                        "等待「$target」消失超时 —— 它仍然在屏幕上"
+                    } else {
+                        "等待「$target」出现超时 —— 可以加大 timeoutMs,或先截图确认页面上有什么"
+                    })
+            }
+
+            Thread.sleep(minOf(intervalMs, (timeoutMs - elapsed).coerceAtLeast(50L)))
+        }
+    }
+
+    /** One probe for [waitForTarget]; returns the geometry when the target is present. */
+    private fun probeTarget(
+        service: AgentAccessibilityService,
+        target: String,
+        mode: String,
+    ): JSONObject? {
+        if (mode == "node") {
+            val root = service.rootInActiveWindow ?: return null
+            val node = findNodeByText(root, target, 0) ?: return null
+            val rect = Rect().also { node.getBoundsInScreen(it) }
+            return JSONObject()
+                .put("bounds", JSONArray(listOf(rect.left, rect.top, rect.right, rect.bottom)))
+                .put("center", JSONArray(listOf(rect.centerX(), rect.centerY())))
+        }
+
+        // `text` and `gone` both need the fused view: a target that only OCR can see
+        // must still count as present, or a wait would time out on exactly the apps
+        // (custom-drawn lists) where it is most useful.
+        val fused = findText(
+            service,
+            JSONObject()
+                .put("text", target)
+                .put("mode", "contains")
+                .put("source", "auto")
+                .put("tappable", true),
+        )
+        if (fused.optInt("count") <= 0) return null
+        val first = fused.getJSONArray("matches").getJSONObject(0)
+        val center = first.optJSONObject("tapTarget")?.optJSONArray("center")
+            ?: first.optJSONArray("center")
+        return JSONObject()
+            .put("bounds", first.opt("bounds"))
+            .put("center", center)
+    }
+
+    private fun findNodeByText(
+        node: AccessibilityNodeInfo,
+        target: String,
+        depth: Int,
+    ): AccessibilityNodeInfo? {
+        if (depth > 60) return null
+        val text = node.text?.toString()
+        val desc = node.contentDescription?.toString()
+        if ((text != null && text.contains(target)) || (desc != null && desc.contains(target))) {
+            return node
+        }
+        for (i in 0 until node.childCount) {
+            val child = node.getChild(i) ?: continue
+            findNodeByText(child, target, depth + 1)?.let { return it }
+        }
+        return null
+    }
 
     /**
      * Locate something by any available means and say which one worked.
