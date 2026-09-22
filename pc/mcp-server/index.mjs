@@ -308,6 +308,12 @@ const TOOLS = [
           type: "boolean",
           description: "对比度增强后二次识别并合并 —— 彩色小字压在照片上时明显提升(实测总行 +38%)",
         },
+        engine: {
+          type: "string", enum: ["mlkit", "ppocr"],
+          description:
+            "识别引擎。mlkit 快(1.5s)但小字彩色文本易错且不确定;" +
+            "ppocr 慢(2.7s)但置信度 0.99 且同图同结果。采文字用 ppocr。",
+        },
       },
       additionalProperties: false,
     },
@@ -316,6 +322,7 @@ const TOOLS = [
       if (a.region) cmd.region = a.region;
       if (a.scale) cmd.scale = a.scale;
       if (a.enhance) cmd.enhance = true;
+      if (a.engine) cmd.engine = a.engine;
       const d = await run(cmd);
       return {
         content: [

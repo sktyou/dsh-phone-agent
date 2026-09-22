@@ -11,8 +11,18 @@ android {
         applicationId = "com.dsh.phoneagent"
         minSdk = 30
         targetSdk = 34
-        versionCode = 3
-        versionName = "0.2.1"
+        versionCode = 4
+        versionName = "0.3.0"
+
+        // Only arm64.
+        //
+        // ONNX Runtime ships a native library per ABI and each is ~25MB. Carrying all
+        // four took the APK from 51MB to 149MB for slices no supported device would
+        // load — every phone this runs on is arm64-v8a. The x86 slices matter only for
+        // emulators, which is not the deployment target.
+        ndk {
+            abiFilters += "arm64-v8a"
+        }
     }
 
     buildTypes {
@@ -75,10 +85,18 @@ tasks.named("preBuild") {
     dependsOn(syncSkillDoc, syncMcpFiles)
 }
 
-// Almost entirely framework-only. The one exception is on-device OCR: ML Kit's
-// `com.google.mlkit:*` artifacts bundle their models into the APK and do NOT
-// require Google Play Services, which matters on devices without GMS.
-// (The `com.google.android.gms:play-services-mlkit-*` variants would not work here.)
+// Two OCR engines during the transition.
+//
+// ML Kit stays as the fallback: it is fast, already wired in, and handles Latin text
+// perfectly well. PP-OCR is added because ML Kit's Chinese recogniser garbles
+// small coloured text over photographs often enough to matter — measured on a real
+// menu, 28% of product titles came back wrong or unreadable, and it is not
+// deterministic between runs on the same frame.
+//
+// `onnxruntime-android` rather than `-mobile`: the mobile artifact disappeared from
+// Maven Central at 1.20 and the standard one is ABI-split by the build, so the APK
+// only carries the slices it needs.
 dependencies {
     implementation("com.google.mlkit:text-recognition-chinese:16.0.1")
+    implementation("com.microsoft.onnxruntime:onnxruntime-android:1.20.0")
 }

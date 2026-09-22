@@ -597,21 +597,31 @@ class ControlServer(
         }
         val scale = req.optDouble("scale", 1.0)
         val enhance = req.optBoolean("enhance", false)
-        // Opt-in: recognising both the plain and the stretched image and merging costs
-        // a second recogniser pass (~+380ms) to reclaim rows the stretched pass already
-        // read. Worth it when the caller is auditing recall, not when it is driving.
         val merge = req.optBoolean("merge", false)
-        // Re-read weak lines individually at higher magnification. Off by default: it
-        // costs up to ~0.5s per line retried. Worth it when the text has to be *right*
-        // (harvesting names) rather than merely located.
         val refine = req.optBoolean("refine", false)
+
+        // Two engines, selectable per call. ML Kit is the long-standing default and
+        // stays reachable by name so a caller can compare them on the same screen;
+        // `sweep` picks its own default.
+        val engine = req.optString("engine", "mlkit").lowercase()
+
         val bitmap = service.capture() ?: throw IllegalStateException("screenshot failed")
         return try {
-            OcrEngine.recognize(bitmap, region, scale, enhance, merge, refine)
+            if (engine == "ppocr" || engine == "pp") {
+                // PP-OCR reads small coloured text far better than ML Kit and is
+                // deterministic, at roughly twice the cost per screenful. `sweep`
+                // defaults to it because recall is the whole point there; interactive
+                // calls keep ML Kit unless asked otherwise.
+                PpOcrEngine.recognize(applicationAssets(), bitmap, region)
+            } else {
+                OcrEngine.recognize(bitmap, region, scale, enhance, merge, refine)
+            }
         } finally {
             bitmap.recycle()
         }
     }
+
+    private fun applicationAssets(): android.content.res.AssetManager = context.assets
 
     /**
      * Scroll-and-read sweep: OCR every screenful on the way down, in one call.
@@ -682,6 +692,14 @@ class ControlServer(
         // reclaim rows the stretched pass usually already reads. Turn it on when
         // auditing recall rather than driving.
         val ocrMerge = req.optBoolean("ocrMerge", false)
+        // Which recogniser sweep uses.
+        //
+        // PP-OCR by default: harvesting a list is a recall problem, and PP-OCR reads
+        // small coloured text that ML Kit garbles — measured on a real menu, title
+        // confidence 0.993 against 0.637, and deterministic between runs where ML Kit
+        // was not. It costs about 1.2s more per screenful, which is the right trade
+        // when the alternative is rows that are silently wrong.
+        val ocrEngine = req.optString("ocrEngine", "ppocr").lowercase()
 
         // Two de-duplication scopes, because the two outputs answer different questions.
         //
@@ -828,7 +846,11 @@ class ControlServer(
                 // and the scroll above, so waiting for it here usually returns at once.
                 val started = Pending(
                     ocrPool.submit(java.util.concurrent.Callable {
-                        OcrEngine.recognize(bitmap, region, ocrScale, ocrEnhance, ocrMerge)
+                        if (ocrEngine == "ppocr" || ocrEngine == "pp") {
+                            PpOcrEngine.recognize(context.assets, bitmap, region)
+                        } else {
+                            OcrEngine.recognize(bitmap, region, ocrScale, ocrEnhance, ocrMerge)
+                        }
                     }),
                     i,
                     bitmap,
