@@ -61,6 +61,7 @@ object OcrEngine {
         scale: Double = 1.0,
         enhance: Boolean = false,
         merge: Boolean = false,
+        refine: Boolean = false,
     ): JSONObject {
         val box = region?.let {
             Rect(
@@ -103,21 +104,125 @@ object OcrEngine {
             //
             // A screenful that read cleanly is left alone. One that came back sparse, or
             // mostly low-confidence, gets the second pass and a merge.
-            val base = runOnce(enlarged, offsetX, offsetY, effective)
-            if (!enhance) return base
-            if (!merge && !looksWeak(base)) return base
-
-            val boosted = stretchContrast(enlarged) ?: return base
-            val second = try {
-                runOnce(boosted, offsetX, offsetY, effective)
-            } finally {
-                if (boosted !== enlarged) boosted.recycle()
+            // One pass to start with, always. Everything else is conditional on what it
+            // returned.
+            val plain = runOnce(enlarged, offsetX, offsetY, effective)
+            val base = if (!enhance || (!merge && !looksWeak(plain))) {
+                plain
+            } else {
+                val boosted = stretchContrast(enlarged)
+                if (boosted == null) {
+                    plain
+                } else {
+                    val second = try {
+                        runOnce(boosted, offsetX, offsetY, effective)
+                    } finally {
+                        if (boosted !== enlarged) boosted.recycle()
+                    }
+                    mergeResults(plain, second, effective)
+                }
             }
-            return mergeResults(base, second, effective)
+
+            // Optional third stage: re-read the lines that came back weak, each on its
+            // own and more magnified. Bounded inside, and never recurses.
+            return if (refine) {
+                refineWeakLines(croppedBitmap, base, offsetX, offsetY, effective)
+            } else {
+                base
+            }
         } finally {
             if (enlarged !== croppedBitmap) enlarged.recycle()
             if (cropped) croppedBitmap.recycle()
         }
+    }
+
+    /**
+     * Re-read the weakest lines on their own, at a higher magnification.
+     *
+     * A full-screen pass has to pick a single set of parameters for a whole page of
+     * mixed content — large titles next to small prices, black text next to orange. A
+     * line that comes back garbled is usually one the global settings suited poorly,
+     * and re-reading just that rectangle lets the recogniser see nothing else:
+     * measured, confidence rose on four of five weak lines (0.52→0.66, 0.52→0.64,
+     * 0.64→0.75, 0.62→0.66) and stray punctuation the full pass invented disappeared.
+     *
+     * The improvement is real but partial: `超拍手品质精选` stayed wrong. Cropping fixes
+     * what the *frame* got wrong, not what the *recogniser* cannot read.
+     *
+     * Bounded on purpose. Each retry is another recognition pass (~0.5s), so this only
+     * touches lines below [threshold] and stops after [maxLines]; a page where
+     * everything is weak is a page where retrying everything would cost a minute and
+     * change little.
+     */
+    fun refineWeakLines(
+        source: Bitmap,
+        result: JSONObject,
+        offsetX: Int,
+        offsetY: Int,
+        scale: Double,
+        threshold: Double = 0.70,
+        maxLines: Int = 12,
+    ): JSONObject {
+        val lines = result.optJSONArray("ocrLines") ?: return result
+        if (lines.length() == 0) return result
+
+        var refined = 0
+        var improved = 0
+
+        for (i in 0 until lines.length()) {
+            if (refined >= maxLines) break
+            val entry = lines.optJSONObject(i) ?: continue
+            val confidence = entry.optDouble("confidence", 1.0)
+            if (confidence >= threshold) continue
+            val bounds = entry.optJSONArray("bounds") ?: continue
+            if (bounds.length() < 4) continue
+
+            // Back to source coordinates for the crop: `bounds` are already screen
+            // pixels, and `source` starts at (offsetX, offsetY).
+            val left = (bounds.getInt(0) - offsetX).coerceIn(0, source.width - 1)
+            val top = (bounds.getInt(1) - offsetY).coerceIn(0, source.height - 1)
+            val right = (bounds.getInt(2) - offsetX).coerceIn(left + 1, source.width)
+            val bottom = (bounds.getInt(3) - offsetY).coerceIn(top + 1, source.height)
+            val w = right - left
+            val h = bottom - top
+            if (w < 8 || h < 8) continue
+
+            // A little padding so the crop does not clip ascenders or descenders that
+            // the detection box trimmed.
+            val pad = 3
+            val cropLeft = (left - pad).coerceAtLeast(0)
+            val cropTop = (top - pad).coerceAtLeast(0)
+            val cropRight = (right + pad).coerceAtMost(source.width)
+            val cropBottom = (bottom + pad).coerceAtMost(source.height)
+
+            refined++
+            val better = runCatching {
+                // Higher magnification than the page pass: a single line has nothing to
+                // lose from being enlarged.
+                recognize(
+                    source, Rect(cropLeft, cropTop, cropRight, cropBottom),
+                    (scale * 1.6).coerceAtMost(4.0), true, false,
+                )
+            }.getOrNull() ?: continue
+
+            val candidate = better.optJSONArray("ocrLines")?.let { arr ->
+                (0 until arr.length())
+                    .mapNotNull { arr.optJSONObject(it) }
+                    .maxByOrNull { it.optDouble("confidence", 0.0) }
+            } ?: continue
+            val newConfidence = candidate.optDouble("confidence", 0.0)
+            if (newConfidence <= confidence) continue
+
+            entry.put("text", candidate.optString("text"))
+            entry.put("confidence", newConfidence)
+            entry.put("refined", true)
+            // The crop was padded, so its box is not the original; keep the original
+            // geometry rather than replacing it with something slightly larger.
+            improved++
+        }
+
+        result.put("refinedLines", refined).put("improvedLines", improved)
+        return result
     }
 
     /**

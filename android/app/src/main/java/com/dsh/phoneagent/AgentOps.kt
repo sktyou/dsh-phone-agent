@@ -179,7 +179,13 @@ object SafetyNet {
             out.put("bounds", JSONArray(listOf(it.left, it.top, it.right, it.bottom)))
         }
         verdict.node?.let { out.put("hit", describe(it)) }
-        verdict.clickableAncestor?.let { out.put("clickable", describe(it)) }
+        // Always present, null when there is none. A caller deciding whether to act
+        // should be able to read the field unconditionally rather than guess whether
+        // its absence means "none found" or "the version is too old to report it".
+        out.put(
+            "clickable",
+            verdict.clickableAncestor?.let { describe(it) } ?: JSONObject.NULL,
+        )
         verdict.throughBounds?.let {
             out.put("throughBounds", JSONArray(listOf(it.left, it.top, it.right, it.bottom)))
         }
@@ -480,5 +486,46 @@ object IncidentLog {
     fun clear() {
         open.clear()
         resolved.clear()
+    }
+}
+
+/**
+ * Fold visually confusable characters together before comparing text.
+ *
+ * Recognising Chinese at small sizes on a busy screen produces near-misses, not
+ * garbage: 土 comes back as 士, 招 as 拍, 都 as 郡. A caller searching for "星耀天都店"
+ * then gets "not found" while the text is sitting right there — and cannot tell that
+ * apart from the element genuinely being absent.
+ *
+ * Folding both sides through the same substitution makes matching tolerant of the
+ * mistakes the recogniser actually makes, without loosening it into substring soup:
+ * only characters that are genuinely hard to tell apart at this size are merged.
+ *
+ * The pairs come from observed failures, not from a general confusables table.
+ * Speculative entries would make unrelated strings collide, which is worse than a
+ * miss — a miss is visible, a wrong match is not.
+ */
+object GlyphFold {
+
+    private val PAIRS: Map<Char, Char> = mapOf(
+        // Observed on a real menu at scale 1.5
+        '士' to '土',   // 【招牌必点】狼牙士豆
+        '拍' to '招',   // 超拍手品质精选 ← 招牌
+        '郡' to '都',   // 星耀天郡店 ← 星耀天都店
+        '半' to '单',   // 半人套餐 ← 单人套餐
+        '莒' to '莴',   // 莒皮狼牙土豆 ← 莴皮
+        '苔' to '莴',
+        '葛' to '莴',
+        '鸿' to '鸡',   // 香酥无骨鸿柳 ← 鸡柳
+        '柔' to '芋',   // 大胖炸洋柔 ← 炸洋芋
+        '巳' to '已',
+        '己' to '已',
+        '末' to '未',
+        '乌' to '鸟',
+    )
+
+    /** Map every character through the substitution table. */
+    fun fold(value: String): String = buildString(value.length) {
+        for (c in value) append(PAIRS[c] ?: c)
     }
 }

@@ -314,6 +314,7 @@ class ControlServer(
             "deeplink" -> deepLink(req)
             "apps" -> listApps(req)
             "stopapp" -> stopApp(req)
+            "appstop" -> stopApp(req)
             "pinch" -> pinch(service, req)
             "flick" -> flick(service, req)
             "scroll" -> scrollNode(service, req)
@@ -600,9 +601,13 @@ class ControlServer(
         // a second recogniser pass (~+380ms) to reclaim rows the stretched pass already
         // read. Worth it when the caller is auditing recall, not when it is driving.
         val merge = req.optBoolean("merge", false)
+        // Re-read weak lines individually at higher magnification. Off by default: it
+        // costs up to ~0.5s per line retried. Worth it when the text has to be *right*
+        // (harvesting names) rather than merely located.
+        val refine = req.optBoolean("refine", false)
         val bitmap = service.capture() ?: throw IllegalStateException("screenshot failed")
         return try {
-            OcrEngine.recognize(bitmap, region, scale, enhance, merge)
+            OcrEngine.recognize(bitmap, region, scale, enhance, merge, refine)
         } finally {
             bitmap.recycle()
         }
@@ -963,9 +968,9 @@ class ControlServer(
     }
 
     private fun textMatches(candidate: String, needle: String, mode: String): Boolean = when (mode) {
-        "exact" -> candidate == needle
+        "exact" -> candidate == needle || GlyphFold.fold(candidate) == GlyphFold.fold(needle)
         "regex" -> runCatching { Regex(needle).containsMatchIn(candidate) }.getOrDefault(false)
-        else -> candidate.contains(needle)
+        else -> candidate.contains(needle) || GlyphFold.fold(candidate).contains(GlyphFold.fold(needle))
     }
 
     /** Resolve a hit's centre to the clickable widget underneath it. */
