@@ -342,6 +342,29 @@ class ControlServer(
     }
 
     /**
+     * A cheap fingerprint of a frame, for "did the screen actually change".
+     *
+     * Sampling a 5x5 grid of pixels rather than hashing the bitmap: a real hash costs
+     * more than it saves, and the question is only whether a scroll moved anything. A
+     * list that did not move produces an identical grid, which is all this needs to
+     * decide to skip a ~1s recognition pass.
+     */
+    private fun frameSignature(bitmap: Bitmap): Int {
+        val w = bitmap.width
+        val h = bitmap.height
+        if (w < 8 || h < 8) return 0
+        var hash = 17
+        for (gy in 1..5) {
+            val y = (h * gy / 6).coerceIn(0, h - 1)
+            for (gx in 1..5) {
+                val x = (w * gx / 6).coerceIn(0, w - 1)
+                hash = hash * 31 + bitmap.getPixel(x, y)
+            }
+        }
+        return hash
+    }
+
+    /**
      * Full-screen display metrics.
      *
      * `resources.displayMetrics` reports the app's usable area, which on a
@@ -573,9 +596,13 @@ class ControlServer(
         }
         val scale = req.optDouble("scale", 1.0)
         val enhance = req.optBoolean("enhance", false)
+        // Opt-in: recognising both the plain and the stretched image and merging costs
+        // a second recogniser pass (~+380ms) to reclaim rows the stretched pass already
+        // read. Worth it when the caller is auditing recall, not when it is driving.
+        val merge = req.optBoolean("merge", false)
         val bitmap = service.capture() ?: throw IllegalStateException("screenshot failed")
         return try {
-            OcrEngine.recognize(bitmap, region, scale, enhance)
+            OcrEngine.recognize(bitmap, region, scale, enhance, merge)
         } finally {
             bitmap.recycle()
         }
@@ -604,7 +631,14 @@ class ControlServer(
         val maxScrolls = req.optInt("scrolls", 8).coerceIn(1, 200)
         val distance = req.optInt("distance", screenH / 2).coerceIn(200, screenH - 200)
         val durationMs = req.optLong("durationMs", 500L).coerceIn(60L, 4_000L)
-        val settleMs = req.optLong("settleMs", 600L).coerceIn(100L, 5_000L)
+        // Shorter than a standalone swipe's brake.
+        //
+        // The brake exists to stop a fling overshooting a target; here the target is
+        // merely "somewhere new", and every capture re-reads whatever is on screen. A
+        // 300ms brake is ~150ms of pure waiting per screenful, which on a 17-screen
+        // sweep is two and a half seconds for no accuracy anyone consumes.
+        val brakeMs = req.optLong("brakeMs", 150L).coerceIn(0L, 2_000L)
+        val settleMs = req.optLong("settleMs", 400L).coerceIn(80L, 5_000L)
         val x = req.optInt("x", screenW / 2).coerceIn(1, screenW - 1)
         val fromY = req.optInt("fromY", screenH * 4 / 5).coerceIn(1, screenH - 1)
         val toY = (fromY - distance).coerceAtLeast(1)
@@ -639,6 +673,10 @@ class ControlServer(
         // point of the command is to come back with everything, and a menu's price
         // labels are exactly the low-contrast coloured text this recovers.
         val ocrEnhance = req.optBoolean("ocrEnhance", true)
+        // Off by default: the second recogniser pass costs ~380ms per screenful to
+        // reclaim rows the stretched pass usually already reads. Turn it on when
+        // auditing recall rather than driving.
+        val ocrMerge = req.optBoolean("ocrMerge", false)
 
         // Two de-duplication scopes, because the two outputs answer different questions.
         //
@@ -657,6 +695,7 @@ class ControlServer(
         var performed = 0
         var emptyRuns = 0
         var stopReason = "scrolls-exhausted"
+        var lastSignature = 0
 
         // A sweep that lands while the agent's own screen is in front reads an empty
         // list and reports `reached-end`, which looks like "the menu has no items"
@@ -670,22 +709,34 @@ class ControlServer(
             )
         }
 
-        for (i in 0 until maxScrolls) {
-            // Captured explicitly rather than with `run { ... break }`: an inline
-            // lambda cannot break out of the enclosing loop.
-            val bitmap = service.capture()
-            if (bitmap == null) {
-                stopReason = "screenshot-failed"
-                break
-            }
-            val result = try {
-                OcrEngine.recognize(bitmap, region, ocrScale, ocrEnhance)
-            } finally {
-                bitmap.recycle()
-            }
+        // Recognition runs on its own thread, one screenful behind the capture loop.
+        //
+        // Capture-and-recognise is strictly sequential by nature, and recognition is the
+        // expensive half (~1s against ~300ms for a capture). Running them in a pipeline
+        // means the scroll and the next capture happen while the previous frame is still
+        // being read, so a screenful costs the larger of the two rather than their sum.
+        // The frame handed to the worker is its own bitmap, so the two never race.
+        val ocrPool = java.util.concurrent.Executors.newSingleThreadExecutor()
 
-            // A plain loop rather than forEach: an inline lambda cannot `break`, and
-            // stopping early is the whole point of the counter below.
+        class Pending(
+            val future: java.util.concurrent.Future<JSONObject>,
+            val capture: Int,
+            val bitmap: Bitmap,
+        )
+
+        var pending: Pending? = null
+
+        // Absorbing a finished frame is the same work the loop used to do inline; it just
+        // happens one iteration later, against a frame that is already read.
+        fun absorb(p: Pending) {
+            val result = try {
+                p.future.get()
+            } catch (t: Throwable) {
+                p.bitmap.recycle()
+                throw t
+            }
+            p.bitmap.recycle()
+
             var fresh = 0
             val lines = result.optJSONArray("ocrLines")
             if (lines != null && lines.length() > 0) {
@@ -697,9 +748,7 @@ class ControlServer(
 
                     val boundsKey = entry.opt("bounds")?.toString() ?: ""
                     if (lineSeen.add("$text|$boundsKey")) {
-                        ocrLines.put(
-                            JSONObject(entry.toString()).put("capture", i),
-                        )
+                        ocrLines.put(JSONObject(entry.toString()).put("capture", p.capture))
                     }
                     compatLines.add(text)
                     // "Did this screenful show anything new" still keys on text alone:
@@ -716,7 +765,7 @@ class ControlServer(
                     if (line.length >= 2) {
                         compatLines.add(line)
                         if (textSeen.add(line)) {
-                            ocrLines.put(JSONObject().put("text", line).put("capture", i))
+                            ocrLines.put(JSONObject().put("text", line).put("capture", p.capture))
                             fresh++
                         }
                     }
@@ -726,26 +775,82 @@ class ControlServer(
             if (fresh == 0) {
                 // Two blank screenfuls in a row means the end of the list. One is not
                 // enough, because a slow-loading image can leave a screen temporarily bare.
-                if (++emptyRuns >= 2) {
-                    stopReason = "reached-end"
-                    break
-                }
+                if (++emptyRuns >= 2) stopReason = "reached-end"
             } else {
                 emptyRuns = 0
             }
+        }
 
-            if (i == maxScrolls - 1) break
-            repeat(steps) {
-                // Same travel-plus-brake gesture as `swipe`, so a swept scroll stops
-                // where it was aimed instead of coasting past it.
-                dispatchSwipeSegmented(
-                    service, x.toFloat(), fromY.toFloat(), x.toFloat(), toY.toFloat(),
-                    durationMs, defaultBrakeMs(),
+        try {
+            for (i in 0 until maxScrolls) {
+                if (stopReason == "reached-end") break
+
+                // Captured explicitly rather than with `run { ... break }`: an inline
+                // lambda cannot break out of the enclosing loop.
+                val bitmap = service.capture()
+                if (bitmap == null) {
+                    stopReason = "screenshot-failed"
+                    break
+                }
+
+                // Recognising a screenful costs ~1s at the settings that actually read
+                // the small print. Paying that to re-read the identical frame — which
+                // happens whenever a gesture lands at a boundary and the list does not
+                // move — is pure waste: the frame is compared in microseconds and skipped.
+                val signature = frameSignature(bitmap)
+                if (signature == lastSignature) {
+                    bitmap.recycle()
+                    if (++emptyRuns >= 2) {
+                        stopReason = "reached-end"
+                        break
+                    }
+                    // Still scroll: the next attempt may take.
+                    repeat(steps) {
+                        dispatchSwipeSegmented(
+                            service, x.toFloat(), fromY.toFloat(), x.toFloat(), toY.toFloat(),
+                            durationMs, brakeMs,
+                        )
+                        Thread.sleep(100L)
+                    }
+                    performed++
+                    Thread.sleep(settleMs)
+                    continue
+                }
+                lastSignature = signature
+
+                // Hand this frame to the worker, then collect the previous one. The
+                // previous frame's recognition has been running throughout the capture
+                // and the scroll above, so waiting for it here usually returns at once.
+                val started = Pending(
+                    ocrPool.submit(java.util.concurrent.Callable {
+                        OcrEngine.recognize(bitmap, region, ocrScale, ocrEnhance, ocrMerge)
+                    }),
+                    i,
+                    bitmap,
                 )
-                Thread.sleep(120L)
+                pending?.let { absorb(it) }
+                pending = started
+
+                if (i == maxScrolls - 1) break
+                repeat(steps) {
+                    // Same travel-plus-brake gesture as `swipe`, but with the shorter
+                    // brake this command defaults to.
+                    dispatchSwipeSegmented(
+                        service, x.toFloat(), fromY.toFloat(), x.toFloat(), toY.toFloat(),
+                        durationMs, brakeMs,
+                    )
+                    Thread.sleep(120L)
+                }
+                performed++
+                Thread.sleep(settleMs)
             }
-            performed++
-            Thread.sleep(settleMs)
+
+            // The last frame is still in the pipeline.
+            pending?.let { absorb(it) }
+            pending = null
+        } finally {
+            pending?.let { runCatching { it.future.cancel(true) }; it.bitmap.recycle() }
+            ocrPool.shutdownNow()
         }
 
         return JSONObject()

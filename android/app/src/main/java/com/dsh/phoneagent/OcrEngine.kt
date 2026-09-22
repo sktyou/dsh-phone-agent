@@ -60,6 +60,7 @@ object OcrEngine {
         region: Rect?,
         scale: Double = 1.0,
         enhance: Boolean = false,
+        merge: Boolean = false,
     ): JSONObject {
         val box = region?.let {
             Rect(
@@ -92,21 +93,58 @@ object OcrEngine {
         }
 
         try {
+            // Recognise plainly first, then decide whether a second pass is warranted.
+            //
+            // The two passes complement rather than contain each other — measured, the
+            // stretched view alone read 18 lines where the plain view read 19, but
+            // merged they read 29. So "just use the enhanced one" is not an option, and
+            // "always run both" pays ~380ms on every screenful to help the minority that
+            // need it.
+            //
+            // A screenful that read cleanly is left alone. One that came back sparse, or
+            // mostly low-confidence, gets the second pass and a merge.
             val base = runOnce(enlarged, offsetX, offsetY, effective)
             if (!enhance) return base
+            if (!merge && !looksWeak(base)) return base
 
-            val boosted = stretchContrast(enlarged)
-            if (boosted == null) return base
+            val boosted = stretchContrast(enlarged) ?: return base
             val second = try {
                 runOnce(boosted, offsetX, offsetY, effective)
             } finally {
                 if (boosted !== enlarged) boosted.recycle()
             }
-            return merge(base, second, effective)
+            return mergeResults(base, second, effective)
         } finally {
             if (enlarged !== croppedBitmap) enlarged.recycle()
             if (cropped) croppedBitmap.recycle()
         }
+    }
+
+    /**
+     * Whether a recognition pass looks like it missed things.
+     *
+     * Two signals: very few lines came back at all, or most of what came back is
+     * low-confidence. A menu photographed at an angle, or coloured digits over a
+     * photograph, trips both — and those are exactly the screens where the second pass
+     * earns its cost. A clean screen of black text on white trips neither.
+     *
+     * Deliberately biased toward running the second pass: a wrong "looks weak" costs
+     * 380ms, a wrong "looks fine" costs rows the caller never learns existed.
+     */
+    private fun looksWeak(result: JSONObject): Boolean {
+        val lines = result.optJSONArray("ocrLines") ?: return true
+        if (lines.length() < 8) return true
+
+        var low = 0
+        var counted = 0
+        for (i in 0 until lines.length()) {
+            val entry = lines.optJSONObject(i) ?: continue
+            val c = entry.optDouble("confidence", -1.0)
+            if (c < 0) continue
+            counted++
+            if (c < 0.75) low++
+        }
+        return counted > 0 && low.toDouble() / counted > 0.55
     }
 
     /** One recognition pass over an already-prepared bitmap. */
@@ -170,7 +208,7 @@ object OcrEngine {
      * a price the plain pass garbled, and that is the whole point. Where both agree on
      * placement, the higher-confidence reading wins.
      */
-    private fun merge(first: JSONObject, second: JSONObject, scale: Double): JSONObject {
+    private fun mergeResults(first: JSONObject, second: JSONObject, scale: Double): JSONObject {
         val out = JSONArray()
         val taken = HashSet<String>()
 
