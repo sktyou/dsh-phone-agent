@@ -156,6 +156,47 @@ if (loc.ok) {
   check("locate 可用", false, loc.text.slice(0, 120));
 }
 
+// Structured fields must survive the bridge.
+//
+// The MCP server is a translator, and a translator that forwards only the fields it
+// knows about silently drops every field added later. That is exactly what happened
+// to `ocrLines`: the phone returned it, the tool printed `lines` and threw the
+// geometry away — and the caller had no way to tell the data had ever existed.
+function payloadOf(result) {
+  const blocks = result.raw?.content ?? [];
+  for (const b of blocks) {
+    if (b.type !== "text") continue;
+    try {
+      const j = JSON.parse(b.text);
+      if (j && typeof j === "object") return j;
+    } catch { /* the summary block is not JSON */ }
+  }
+  return null;
+}
+
+const sw = await call("phone_sweep", { scrolls: 2, distance: 1100 });
+if (sw.ok) {
+  const p = payloadOf(sw);
+  check("sweep 透传 lines(兼容字段)", Array.isArray(p?.lines), `${p?.lines?.length} 条`);
+  check("sweep 透传 ocrLines(结构化)", Array.isArray(p?.ocrLines), `${p?.ocrLines?.length} 条`);
+  const withBounds = (p?.ocrLines ?? []).filter((l) => Array.isArray(l.bounds)).length;
+  check("ocrLines 带 bounds", withBounds > 0 && withBounds === p?.ocrLines?.length,
+    `${withBounds}/${p?.ocrLines?.length}`);
+  const withCapture = (p?.ocrLines ?? []).filter((l) => typeof l.capture === "number").length;
+  check("ocrLines 带 capture", withCapture > 0, `${withCapture} 条`);
+} else {
+  check("sweep 可用", false, sw.text.slice(0, 120));
+}
+
+const oc = await call("phone_ocr");
+if (oc.ok) {
+  const p = payloadOf(oc);
+  check("ocr 透传 ocrLines", Array.isArray(p?.ocrLines), `${p?.ocrLines?.length} 条`);
+  check("ocr 透传 fullText(兼容字段)", typeof p?.fullText === "string");
+} else {
+  check("ocr 可用", false, oc.text.slice(0, 120));
+}
+
 const seq = await call("phone_sequence", {
   steps: [{ action: "wait", ms: 100 }, { action: "screenshot", scale: 0.25 }],
 });

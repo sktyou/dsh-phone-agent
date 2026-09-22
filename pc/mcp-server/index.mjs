@@ -295,7 +295,10 @@ const TOOLS = [
   },
   {
     name: "phone_ocr",
-    description: "对当前屏幕做本地中文 OCR。适合控件树为空的界面(游戏、Canvas、Flutter)。",
+    description:
+      "对当前屏幕做本地中文 OCR。适合控件树为空的界面(游戏、Canvas、Flutter)。" +
+      "返回**结构化行**(含 bounds 和 confidence),不是纯文本 —— 多列布局下" +
+      "拿坐标自己配对才可靠。",
     inputSchema: {
       type: "object",
       properties: {
@@ -307,14 +310,29 @@ const TOOLS = [
       const cmd = { cmd: "ocr" };
       if (a.region) cmd.region = a.region;
       const d = await run(cmd);
-      return text(d.fullText || "(没有识别到文字)");
+      return {
+        content: [
+          { type: "text", text: `识别到 ${d.lineCount ?? 0} 行 / ${d.elementCount ?? 0} 个元素` },
+          // Everything the phone returned, not a hand-picked subset. The bridge is a
+          // translator: if it silently drops a field the app added, the caller has no
+          // way to know the data ever existed.
+          { type: "text", text: JSON.stringify({
+            fullText: d.fullText,
+            lineCount: d.lineCount,
+            elementCount: d.elementCount,
+            blockCount: d.blockCount,
+            ocrLines: d.ocrLines,
+          }) },
+        ],
+      };
     },
   },
   {
     name: "phone_sweep",
     description:
-      "滚动并识别整屏长列表,自动去重、自动判断到底。一次调用读完整个菜单/列表," +
-      "比反复截图快得多。region 用来排除重复的侧边导航。",
+      "滚动并识别整屏长列表,自动去重、自动判断到底。一次调用读完整个菜单/列表。" +
+      "返回**结构化行**(ocrLines,含 bounds/capture/confidence),按坐标配对才可靠 —— " +
+      "多列布局下相邻条目会互相穿插,用纯文本配对是在掷骰子。region 用来排除侧边导航。",
     inputSchema: {
       type: "object",
       properties: {
@@ -331,10 +349,26 @@ const TOOLS = [
       };
       if (a.region) cmd.region = a.region;
       const d = await run(cmd);
-      return text(
-        `滚动 ${d.scrolls} 次,识别 ${d.lineCount} 行,停止原因 ${d.stopReason}\n\n` +
-        (d.lines || []).join("\n"),
-      );
+      return {
+        content: [
+          {
+            type: "text",
+            text: `滚动 ${d.scrolls} 次,识别 ${d.lineCount} 行,停止原因 ${d.stopReason}`,
+          },
+          // Both forms are forwarded. `lines` is what an older caller expects;
+          // `ocrLines` carries the geometry that makes price-to-product pairing
+          // possible. Passing only the former is how the structured data the app
+          // already returns got lost in translation.
+          { type: "text", text: JSON.stringify({
+            scrolls: d.scrolls,
+            lineCount: d.lineCount,
+            stopReason: d.stopReason,
+            stepsPerCapture: d.stepsPerCapture,
+            lines: d.lines,
+            ocrLines: d.ocrLines,
+          }) },
+        ],
+      };
     },
   },
   {
