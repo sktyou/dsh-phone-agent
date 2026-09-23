@@ -2618,6 +2618,64 @@ class ControlServer(
                 continue
             }
 
+            // Locate-then-tap as one step.
+            //
+            // Carousels, auto-advancing banners and lazy-loaded lists move between the
+            // moment a caller locates a target and the moment it taps it — two round
+            // trips is long enough for the thing to slide away, and the tap lands on
+            // whatever replaced it. Doing both here removes the gap: the coordinates
+            // come from a locate that ran microseconds ago, not from one the caller
+            // performed several hundred milliseconds back.
+            if (action == "locateTap" || action == "locate_tap") {
+                val target = step.optString("target")
+                if (target.isEmpty()) {
+                    results.put(
+                        JSONObject().put("index", i).put("action", action)
+                            .put("ok", false).put("error", "locateTap 需要 target"),
+                    )
+                    if (stopOnError) break
+                    continue
+                }
+                val located = runCatching {
+                    locate(service, JSONObject(step.toString()).apply {
+                        remove("action")
+                        put("target", target)
+                    })
+                }.getOrElse { e ->
+                    JSONObject().put("found", false).put("error", e.message ?: "error")
+                }
+                val found = located.optBoolean("found")
+                var tapped = false
+                if (found) {
+                    val centre = located.optJSONArray("center")
+                    if (centre != null && centre.length() >= 2) {
+                        val tapReq = JSONObject()
+                            .put("x", centre.getInt(0))
+                            .put("y", centre.getInt(1))
+                        // Safety check off: the point came from a selector match a moment
+                        // ago, and re-reading the tree here would spend the very time the
+                        // atomic step exists to save.
+                            .put("safetyNet", false)
+                        tapped = runCatching { tap(service, tapReq) }.isSuccess
+                    }
+                }
+                executed++
+                results.put(
+                    JSONObject()
+                        .put("index", i)
+                        .put("action", "locateTap")
+                        .put("ok", found && tapped)
+                        .put("found", found)
+                        .put("tapped", tapped)
+                        .put("strategy", located.opt("strategy"))
+                        .put("confidence", located.opt("confidence"))
+                        .put("center", located.opt("center"))
+                        .put("error", if (found) JSONObject.NULL else located.opt("hint")),
+                )
+                if (!(found && tapped) && stopOnError) break
+                continue
+            }
+
             val sub = JSONObject(step.toString())
             sub.put("id", "seq-$i")
             // Steps name their command `action`; the dispatcher reads `cmd`. Without

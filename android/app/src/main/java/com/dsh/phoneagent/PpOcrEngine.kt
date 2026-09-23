@@ -228,7 +228,7 @@ object PpOcrEngine {
         if (read == null || read.first.isBlank()) return
         lines.put(
             JSONObject()
-                .put("text", read.first)
+                .put("text", normalizeGlyphs(read.first))
                 .put("bounds", JSONArray(listOf(b.left, b.top, b.right, b.bottom)))
                 .put("center", JSONArray(listOf(b.centerX(), b.centerY())))
                 .put("height", b.height())
@@ -539,6 +539,28 @@ object PpOcrEngine {
         val entry = dictionary[i]
         // A trailing space marker in the dictionary means "space".
         return if (entry.isEmpty()) " " else entry
+    }
+
+    /**
+     * Normalise characters that differ only by width or by code point.
+     *
+     * PP-OCR's Chinese dictionary emits the full-width yen sign (U+FFE5) where ML Kit
+     * and every caller expect the half-width one. Two strings that look identical then
+     * fail to compare equal, and every downstream consumer ends up writing the same
+     * substitution — which is what a normalisation layer is for.
+     *
+     * Applied to recognised text only. Deliberately not a general width-folding pass:
+     * full-width Latin inside Chinese text is often intentional, and folding it would
+     * rewrite text the caller may want verbatim.
+     */
+    private fun normalizeGlyphs(value: String): String = buildString(value.length) {
+        for (c in value) {
+            when (c) {
+                '\uFFE5' -> append('\u00A5')   // ￥ → ¥
+                '\uFF0D' -> append('-')        // － → -
+                else -> append(c)
+            }
+        }
     }
 
     private fun alignUp(value: Int, multiple: Int): Int =
