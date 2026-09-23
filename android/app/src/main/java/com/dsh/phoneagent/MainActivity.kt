@@ -145,9 +145,21 @@ class MainActivity : Activity() {
         )
 
         root.addView(
-            text("v0.2.1 · 局域网直连 · 不依赖 adb", 11.5f, Ui.FAINT).apply {
+            // Read from the package, never typed here.
+            //
+            // This line said "v0.2.1" by hand through two releases, so the app claimed
+            // one version while reporting another over the wire — and the only way to
+            // find out which build was actually installed was to ask adb. A version
+            // number that can drift from the real one is worse than none.
+            text("v${appVersionName()} · 局域网直连 · 不依赖 adb", 11.5f, Ui.FAINT).apply {
                 gravity = Gravity.CENTER
                 setPadding(0, dp(20), 0, dp(4))
+                isClickable = true
+                setOnClickListener {
+                    // A long-press-free way to see the full build identity, since the
+                    // footer deliberately stays to one short line.
+                    toast("v${appVersionName()} (build ${appVersionCode()})")
+                }
             },
         )
 
@@ -464,6 +476,21 @@ class MainActivity : Activity() {
     private fun toast(message: String) {
         android.widget.Toast.makeText(this, message, android.widget.Toast.LENGTH_SHORT).show()
     }
+
+    /** The installed version name, straight from the package manager. */
+    private fun appVersionName(): String = runCatching {
+        packageManager.getPackageInfo(packageName, 0).versionName ?: "?"
+    }.getOrDefault("?")
+
+    /** The installed version code, straight from the package manager. */
+    private fun appVersionCode(): Long = runCatching {
+        val info = packageManager.getPackageInfo(packageName, 0)
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+            info.longVersionCode
+        } else {
+            @Suppress("DEPRECATION") info.versionCode.toLong()
+        }
+    }.getOrDefault(0L)
 
     private fun accessibilityCard(): LinearLayout = card(paddingDp = 15).apply {
         addView(
