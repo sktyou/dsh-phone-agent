@@ -362,6 +362,41 @@ PP-OCR 逐字正确、置信度中位 0.993。
 **外卖类 App 的定位漂移是它自己的逻辑**(GPS 优先 vs 手动地址),
 **自动化侧应该:操作前确认地址 → 不对就等待或手动重设 → 而不是假设它稳定**。
 
+## 找图:`findimage`
+
+```json
+{"cmd":"findimage","template":"<base64 PNG/JPEG>","threshold":0.9,"max":3}
+→ {"count":1,"coarseScale":12,"matches":[
+     {"center":[230,430],"bounds":[...],"similarity":1.0}]}
+```
+
+- **`threshold` 是相似度**(0-1),`0.9` 表示至少 90% 像
+- **`similarity` 是返回的实测值** —— 用它可以判断该把阈值定在哪
+- **模板上限 512px/边**;模板必须**小于**搜索区域
+- **搜索流程**:降采样粗筛 → 在候选点附近全分辨率精配,所以即使模板缩小 0.5x 也能命中
+- **`coarseScale`** 是粗筛的降采样倍数(模板 340px 时约 12)
+
+**模板来源**:用 `screenshot` 的 `region` 参数从同一屏幕裁,最可靠 —— 同一帧、
+同一压缩、同一缩放,不存在跨来源的渲染差异。
+
+**取不到命中时**先降低 `threshold` 看 `similarity` 实际是多少,
+**别直接假设"图上没有"**。
+
+## `wait` / `find` 的 `node` 模式匹配三个字段
+
+| 字段 | 说明 |
+|---|---|
+| `text` | 可见文字(子串匹配) |
+| `desc` | contentDescription(子串匹配) |
+| **`viewId`** | **`package:id/name` 全名,或裸名 `id/name`** |
+
+**所以从 `uitree` 里复制 viewId 直接给 `wait` 是可行的**:
+
+```json
+{"cmd":"wait","mode":"node","target":"android:id/action_bar","timeoutMs":4000}
+→ {"appeared":true,"center":[540,172]}
+```
+
 ## MCP:让任何 AI IDE 接入
 
 **先在手机上打开开关**:DSH Phone Agent 首页 → **MCP 服务** → 开关。

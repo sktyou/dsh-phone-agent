@@ -148,6 +148,14 @@ check("mimeType 正确", /^image\//.test(shot.image?.mimeType ?? ""), shot.image
 
 // 5. the new commands
 console.log("\n⑤ 新增命令");
+
+// Sweep refuses to run while the agent's own screen is in front — that guard is
+// deliberate, because reading your own UI produces an empty list that looks like an
+// empty menu. The test therefore has to put something else in front first, or it
+// reports a failure for a check that is working correctly.
+await call("phone_launch", { package: "com.android.settings" });
+await new Promise((r) => setTimeout(r, 2500));
+
 const loc = await call("phone_locate", { target: "设置" });
 if (loc.ok) {
   const d = JSON.parse(loc.text);
@@ -195,6 +203,66 @@ if (oc.ok) {
   check("ocr 透传 fullText(兼容字段)", typeof p?.fullText === "string");
 } else {
   check("ocr 可用", false, oc.text.slice(0, 120));
+}
+
+// Template matching, round trip.
+//
+// A crop taken from a known region must be found at that same region. This is the one
+// check that would have caught the inverted threshold that made find_image return
+// nothing at every setting: a pixel-identical template is the easiest possible case,
+// so if it is not found, the search is not merely imprecise — it is broken.
+const CROP = [60, 300, 400, 560];
+// `phone_screenshot` reports geometry as prose, so the raw command is used to get the
+// crop size numerically and compute where the centre should land.
+const cropRaw = await call("phone_raw", {
+  command: { cmd: "screenshot", region: CROP, scale: 1.0, format: "png" },
+});
+const cropData = cropRaw.ok ? JSON.parse(cropRaw.text) : null;
+const cropImage = cropData?.image;
+if (cropImage) {
+  const expectX = CROP[0] + cropData.imageWidth / 2;
+  const expectY = CROP[1] + cropData.imageHeight / 2;
+  const found = await call("phone_find_image", { template: cropImage, threshold: 0.9, max: 3 });
+  if (found.ok) {
+    const p = JSON.parse(found.text);
+    const first = p.matches?.[0];
+    check("find_image 命中同源模板", (p.count ?? 0) > 0, `count=${p.count}`);
+    if (first) {
+      const dx = Math.abs(first.center[0] - expectX);
+      const dy = Math.abs(first.center[1] - expectY);
+      check("find_image 中心误差 ≤4px", dx <= 4 && dy <= 4,
+        `误差 (${dx.toFixed(0)},${dy.toFixed(0)})px, 相似度 ${first.similarity?.toFixed(4)}`);
+    } else {
+      check("find_image 返回坐标", false, found.text.slice(0, 140));
+    }
+  } else {
+    check("find_image 可用", false, found.text.slice(0, 120));
+  }
+} else {
+  check("find_image 前置截图", false, cropRaw.text?.slice(0, 140) ?? "无输出");
+}
+
+// A viewId copied straight out of uitree must be findable in node mode — the tree
+// advertises it, so failing to match it is a contradiction a caller cannot resolve.
+const tree = await call("phone_uitree", { maxDepth: 30, maxNodes: 400 });
+if (tree.ok) {
+  const t = JSON.parse(tree.text);
+  const ids = [];
+  (function walk(n) {
+    if (!n) return;
+    if (n.viewId) ids.push(n.viewId);
+    for (const c of n.children ?? []) walk(c);
+  })(t.root);
+  if (ids.length > 0) {
+    const probe = ids.find((i) => i.includes("action_bar")) ?? ids[0];
+    const w = await call("phone_wait", { mode: "node", target: probe, timeoutMs: 4000 });
+    const p = JSON.parse(w.text);
+    check("wait node 模式匹配 viewId", p.appeared === true, `${probe} → appeared=${p.appeared}`);
+  } else {
+    check("wait node 模式匹配 viewId", false, "当前界面没有 viewId 可测(改用 OCR 路线)");
+  }
+} else {
+  check("wait node 模式匹配 viewId", false, "uitree 不可用");
 }
 
 const seq = await call("phone_sequence", {

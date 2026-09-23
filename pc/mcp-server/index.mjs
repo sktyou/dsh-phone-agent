@@ -160,7 +160,12 @@ const TOOLS = [
   },
   {
     name: "phone_uitree",
-    description: "读取界面节点树。返回控件层级,含 viewId / text / desc / 是否可点。用来了解页面上有什么。",
+    description:
+      "读取界面节点树。返回控件层级,含 viewId / text / desc / 是否可点。" +
+      "**注意看返回里的 `uiTreeTextRate`**:自绘界面(Flutter / Compose / WebView / 小游戏)" +
+      "的节点树可能只有十几个容器、零文本(viewId 也极少,常见只有系统框架 id)," +
+      "这时选择器基本找不到东西——不是元素不存在,是控件树根本没描述它。" +
+      "返回里会给出提示,看到就改用 ocr / findtext / sweep 这类基于画面的工具。",
     inputSchema: {
       type: "object",
       properties: {
@@ -198,8 +203,13 @@ const TOOLS = [
   {
     name: "phone_tap",
     description:
-      "点击坐标。返回里带 safety 字段:说明这个位置到底有什么、是否可点。" +
-      "如果 safety.code 不是 ok,说明点到空白或不可点的容器上,点击不会有效果。",
+      "点击坐标。返回里带 safety 字段,四档判定:\n" +
+      "· `ok` 顶层或其祖先可点 —— 正常\n" +
+      "· `obscured` 被不可点覆盖层挡住(水印/蒙层),或自绘界面里无障碍看不到目标 —— **照常执行**,触摸通常穿透\n" +
+      "· `scrollable` 命中可滚动容器 —— 点击无效,**拖动有效**\n" +
+      "· `empty` 顶层是有内容的节点但不可点 —— 这才是真的点了没用\n" +
+      "`abortOnUnsafe:true` 只在 `empty` / `no-root` 时拦下动作;" +
+      "ok / obscured / scrollable 都算安全,不会拦截。",
     inputSchema: {
       type: "object",
       properties: {
@@ -264,7 +274,11 @@ const TOOLS = [
   },
   {
     name: "phone_key",
-    description: "按系统键。支持 HOME / BACK / RECENTS / NOTIFICATIONS / LOCK / SCREENSHOT。",
+    description:
+      "按系统键。支持 HOME / BACK / RECENTS / NOTIFICATIONS / QUICK_SETTINGS / POWER / " +
+      "LOCK / SCREENSHOT / VOLUME_UP / VOLUME_DOWN。\n" +
+      "**返回格式与其他工具不同**:成功时返回 `{label:\"最近任务\"}` 而不是 `{completed:true}` —— " +
+      "系统键没有可确认的手势结果,能回报的只有「这个键被发出去了」。",
     inputSchema: {
       type: "object",
       properties: { key: { type: "string" } },

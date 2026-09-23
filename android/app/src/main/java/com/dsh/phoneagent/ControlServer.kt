@@ -2501,17 +2501,36 @@ class ControlServer(
             .put("center", center)
     }
 
+    /**
+     * Depth-first search for a node matching [target] in node mode.
+     *
+     * Matches viewId as well as visible text and description. A caller that reads
+     * `uitree` sees `android:id/action_bar` in the output, so passing that string back
+     * is the obvious next move — and it silently timed out while the tree plainly
+     * contained it, because only text and description were consulted.
+     *
+     * `viewIdResourceName` is a fully qualified `package:id/name`. Both the full form
+     * and the bare `id/name` suffix match, since a caller copying from a dump may have
+     * either.
+     */
     private fun findNodeByText(
         node: AccessibilityNodeInfo,
         target: String,
         depth: Int,
     ): AccessibilityNodeInfo? {
         if (depth > 60) return null
+
         val text = node.text?.toString()
         val desc = node.contentDescription?.toString()
-        if ((text != null && text.contains(target)) || (desc != null && desc.contains(target))) {
-            return node
-        }
+        val viewId = node.viewIdResourceName
+        val idSuffix = viewId?.substringAfterLast('/')
+
+        val hit = (text != null && text.contains(target)) ||
+            (desc != null && desc.contains(target)) ||
+            (viewId != null && (viewId == target || viewId.endsWith(target))) ||
+            (idSuffix != null && idSuffix == target.substringAfterLast('/'))
+        if (hit) return node
+
         for (i in 0 until node.childCount) {
             val child = node.getChild(i) ?: continue
             findNodeByText(child, target, depth + 1)?.let { return it }

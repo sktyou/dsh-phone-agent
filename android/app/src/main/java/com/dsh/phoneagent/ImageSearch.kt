@@ -294,15 +294,43 @@ object ImageSearch {
         val smallTemplate = scaleDown(template, scale)
 
         val coarse = sweep(smallSource, smallTemplate, topK = max(8, maxResults * 2))
-        if (coarse.isEmpty()) return JSONObject().put("count", 0).put("matches", JSONArray())
+        if (coarse.isEmpty()) {
+            return JSONObject()
+                .put("count", 0)
+                .put("matches", JSONArray())
+                .put("coarseScale", scale)
+                .put("reason", "coarse-sweep-empty")
+                .put("smallSource", "${smallSource.width}x${smallSource.height}")
+                .put("smallTemplate", "${smallTemplate.width}x${smallTemplate.height}")
+        }
+
+        // Diagnostic: what the coarse pass actually thought, and what refinement made of
+        // it. Without this, "count: 0" says nothing about whether the template was ever
+        // visible to the search or merely scored badly at the end.
+        val coarseBest = JSONArray()
+        for (c in coarse.take(5)) {
+            coarseBest.put(
+                JSONObject()
+                    .put("x", c.first.first)
+                    .put("y", c.first.second)
+                    .put("score", c.second),
+            )
+        }
 
         val matches = JSONArray()
         val seen = HashSet<Long>()
+        val refinedScores = ArrayList<Double>()
         for (candidate in coarse) {
             // Refine on the original pixels, with the coarse result as the centre.
             val refined = refine(source, template, candidate, scale)
             val score = refined.second
-            if (score < threshold) continue
+            refinedScores.add(score)
+            // `score` is a *difference* (0 = identical, 1 = nothing alike); `threshold`
+            // is the similarity a caller asks for. Comparing them directly inverted the
+            // test, so a pixel-perfect template was discarded and only dissimilar
+            // regions could ever be reported — which is why every threshold returned
+            // nothing at all.
+            if (1.0 - score < threshold) continue
             val key = ((refined.first.first / 8).toLong() shl 32) or ((refined.first.second / 8).toLong() and 0xFFFFFFFFL)
             if (!seen.add(key)) continue
             matches.put(
@@ -325,6 +353,15 @@ object ImageSearch {
         return JSONObject()
             .put("count", matches.length())
             .put("coarseScale", scale)
+            .put("smallSource", "${smallSource.width}x${smallSource.height}")
+            .put("smallTemplate", "${smallTemplate.width}x${smallTemplate.height}")
+            .put("coarseBest", coarseBest)
+            .put(
+                "refineBest",
+                JSONArray(
+                    refinedScores.sorted().take(5).map { JSONObject().put("score", it) },
+                ),
+            )
             .put("matches", matches)
     }
 
